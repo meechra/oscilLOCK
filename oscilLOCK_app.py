@@ -147,19 +147,21 @@ def convert_waveform_to_audio_bytes(waveform, sample_rate):
 def main():
     st.set_page_config(page_title="oscilLOCK", layout="wide")
     
+    # Sidebar title outside the form
+    st.sidebar.title("CONTROL PANEL")
+    
     # Sidebar form for input and customization controls
     with st.sidebar.form(key="input_form"):
-        st.sidebar.title("CONTROL PANEL")
         user_text = st.text_input("Enter text to encrypt:", "Hello, oscilLOCK!", max_chars=500)
         
-        st.sidebar.markdown("### Audio Parameters")
-        tone_duration = st.sidebar.slider("Tone Duration (sec)", 0.1, 0.5, 0.2)
-        gap_duration = st.sidebar.slider("Gap Duration (sec)", 0.01, 0.1, 0.05)
-        base_freq = st.sidebar.number_input("Base Frequency (Hz)", 100, 1000, 300)
-        freq_range = st.sidebar.number_input("Frequency Range (Hz)", 100, 2000, 700)
-        chaos_mod_range = st.sidebar.number_input("Chaos Mod Range (Hz)", 0, 500, 100)
+        st.markdown("### Audio Parameters")
+        tone_duration = st.slider("Tone Duration (sec)", 0.1, 0.5, 0.2)
+        gap_duration = st.slider("Gap Duration (sec)", 0.01, 0.1, 0.05)
+        base_freq = st.number_input("Base Frequency (Hz)", 100, 1000, 300)
+        freq_range = st.number_input("Frequency Range (Hz)", 100, 2000, 700)
+        chaos_mod_range = st.number_input("Chaos Mod Range (Hz)", 0, 500, 100)
         
-        with st.sidebar.expander("Advanced Chaotic Parameters"):
+        with st.expander("Advanced Chaotic Parameters"):
             dt = st.slider("dt", 0.001, 0.05, 0.01, step=0.001)
             a = st.slider("a", 0.1, 1.0, 0.2, step=0.1)
             b = st.slider("b", 0.1, 1.0, 0.2, step=0.1)
