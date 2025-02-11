@@ -149,7 +149,7 @@ def main():
     
     # Sidebar form for input and customization controls
     with st.sidebar.form(key="input_form"):
-        st.sidebar.header("Input & Customization")
+        st.sidebar.title("CONTROL PANEL")
         user_text = st.text_input("Enter text to encrypt:", "Hello, oscilLOCK!", max_chars=500)
         
         st.sidebar.markdown("### Audio Parameters")
@@ -168,6 +168,7 @@ def main():
             y0 = st.number_input("y0", value=0.0, step=0.1)
             z0 = st.number_input("z0", value=0.0, step=0.1)
         
+        # Place the submit (Enter) button at the bottom of the form
         submit_button = st.form_submit_button(label="Enter")
     
     if submit_button and user_text:
