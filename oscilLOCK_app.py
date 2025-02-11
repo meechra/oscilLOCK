@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import io
 import soundfile as sf
 import hashlib
@@ -144,14 +145,54 @@ def convert_waveform_to_audio_bytes(waveform, sample_rate):
     sf.write(buf, waveform, sample_rate, format='WAV')
     return buf.getvalue()
 
+# ------------------ New Visualization Functions for Key Generation ------------------
+def get_audio_feature_values(waveform, num_samples=128):
+    """
+    Extract and quantize amplitude samples from the audio waveform.
+    Returns a numpy array of 8-bit quantized values.
+    """
+    indices = np.linspace(0, len(waveform)-1, num_samples, dtype=int)
+    samples = waveform[indices]
+    quantized = np.uint8(255 * ((samples - samples.min()) / (samples.max() - samples.min() + 1e-6)))
+    return quantized
+
+def plot_chaotic_sequence(chaotic_sequence):
+    """Plot the raw chaotic sequence as a line graph."""
+    fig = go.Figure(data=go.Scatter(x=list(range(len(chaotic_sequence))), y=chaotic_sequence, mode='lines', name='Chaotic Sequence'))
+    fig.update_layout(title="Raw Chaotic Sequence", xaxis_title="Index", yaxis_title="Value")
+    return fig
+
+def plot_quantized_chaotic_sequence(chaotic_sequence):
+    """Plot the quantized chaotic sequence (8-bit values)."""
+    chaotic_array = np.array(chaotic_sequence)
+    quantized = np.uint8(255 * chaotic_array)
+    fig = go.Figure(data=go.Scatter(x=list(range(len(quantized))), y=quantized, mode='lines+markers', name='Quantized Chaotic Sequence'))
+    fig.update_layout(title="Quantized Chaotic Sequence", xaxis_title="Index", yaxis_title="Value (0-255)")
+    return fig
+
+def plot_audio_features(audio_features):
+    """Plot the quantized audio feature values."""
+    fig = go.Figure(data=go.Scatter(x=list(range(len(audio_features))), y=audio_features, mode='lines+markers', name='Audio Features'))
+    fig.update_layout(title="Audio Features (Quantized)", xaxis_title="Index", yaxis_title="Value (0-255)")
+    return fig
+
+def plot_combined_features(quantized_chaotic, audio_features):
+    """Display quantized chaotic sequence and audio features side by side."""
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("Quantized Chaotic Sequence", "Audio Features"))
+    fig.add_trace(go.Scatter(x=list(range(len(quantized_chaotic))), y=quantized_chaotic, mode='lines+markers', name='Quantized Chaotic'),
+                  row=1, col=1)
+    fig.add_trace(go.Scatter(x=list(range(len(audio_features))), y=audio_features, mode='lines+markers', name='Audio Features'),
+                  row=1, col=2)
+    fig.update_layout(title="Combined Features Comparison")
+    return fig
+
 # ------------------ Key Generation Functions ------------------
 def derive_initial_conditions(passphrase):
     """
     Derive initial conditions for the chaotic system from the passphrase.
-    We hash the passphrase with SHA-256 and split the hash into three parts for x0, y0, and z0.
+    Hash the passphrase with SHA-256 and split the hash into three parts for x0, y0, and z0.
     """
     hash_digest = hashlib.sha256(passphrase.encode()).hexdigest()  # 64 hex characters
-    # Convert parts of the hex digest to floats in [0, 1]
     x0 = int(hash_digest[0:21], 16) / float(0xFFFFFFFFFFFFFFFFFFFFF)
     y0 = int(hash_digest[21:42], 16) / float(0xFFFFFFFFFFFFFFFFFFFFF)
     z0 = int(hash_digest[42:64], 16) / float(0xFFFFFFFFFFFFFFFFFFFFF)
@@ -159,8 +200,8 @@ def derive_initial_conditions(passphrase):
 
 def sample_audio_features(waveform, num_samples=128):
     """
-    Extract a set number of amplitude samples from the audio waveform.
-    These values are quantized to 8 bits and converted to a byte string.
+    Extract a set number of amplitude samples from the audio waveform,
+    quantize them to 8 bits, and return as a byte string.
     """
     indices = np.linspace(0, len(waveform)-1, num_samples, dtype=int)
     samples = waveform[indices]
@@ -187,16 +228,14 @@ def generate_chaotic_key(passphrase, waveform, chaotic_params, num_chaotic_sampl
     audio_bytes = sample_audio_features(waveform, num_samples=num_chaotic_samples)
     combined = chaotic_bytes + audio_bytes
     key = hashlib.sha256(combined).hexdigest()
-    return key
+    return key, chaotic_sequence
 
 # ------------------ Streamlit Interface ------------------
 def main():
     st.set_page_config(page_title="oscilLOCK", layout="wide")
     
-    # Sidebar title outside the form
+    # Sidebar title and form for input & customization
     st.sidebar.title("CONTROL PANEL")
-    
-    # Sidebar form for input and customization controls
     with st.sidebar.form(key="input_form"):
         user_text = st.text_input("Enter text to encrypt:", "Hello, oscilLOCK!", max_chars=500)
         passphrase = st.text_input("Enter passphrase for key generation:", "DefaultPassphrase", type="password")
@@ -217,7 +256,6 @@ def main():
             y0 = st.number_input("y0", value=0.0, step=0.1)
             z0 = st.number_input("z0", value=0.0, step=0.1)
         
-        # Place the submit (Enter) button at the bottom of the form
         submit_button = st.form_submit_button(label="Enter")
     
     if submit_button and user_text:
@@ -225,9 +263,9 @@ def main():
             # Data Preprocessing
             binary_output = text_to_binary(user_text)
             recovered_text = binary_to_text(binary_output)
-            sample_rate = 44100  # Fixed audio sample rate
+            sample_rate = 44100
             
-            # Generate waveforms
+            # Generate encoded and encrypted waveforms
             waveform_encoded, _ = grouped_binary_to_waveform_plain(
                 binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
                 base_freq=base_freq, freq_range=freq_range
@@ -237,12 +275,16 @@ def main():
                 base_freq=base_freq, freq_range=freq_range, chaos_mod_range=chaos_mod_range,
                 dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0
             )
-            # Define chaotic_params for key generation as (dt, a, b, c)
+            
+            # For key generation, use chaotic_params and number of samples
             chaotic_params = (dt, a, b, c)
-            # Generate cryptographic key using the passphrase and encoded audio (you could choose encoded or encrypted)
-            derived_key = generate_chaotic_key(passphrase, waveform_encoded, chaotic_params)
+            num_chaotic_samples = 128
+            derived_key, chaotic_sequence = generate_chaotic_key(passphrase, waveform_encoded, chaotic_params, num_chaotic_samples)
+            
+            # Extract audio feature values for visualization
+            audio_features = get_audio_feature_values(waveform_encoded, num_samples=num_chaotic_samples)
         
-        # Create tabs for the modular pipeline
+        # Create tabs for the pipeline
         tab1, tab2, tab3, tab4 = st.tabs(["Preprocessing & Encoding", "Encryption Module", "Comparison", "Key Generation"])
         
         with tab1:
@@ -262,15 +304,13 @@ def main():
         
         with tab3:
             st.header("Comparison")
-            zoom_range = (0, 0.005)  # Zoom in on first 5 ms for time-domain plots
+            zoom_range = (0, 0.005)
             st.subheader("Difference Waveform (Encrypted - Encoded)")
             fig_diff = create_difference_figure(waveform_encoded, waveform_encrypted, sample_rate, zoom_range=zoom_range)
             st.plotly_chart(fig_diff, use_container_width=True)
-            
             st.subheader("FFT Comparison")
             fig_fft = create_fft_figure(waveform_encoded, waveform_encrypted, sample_rate)
             st.plotly_chart(fig_fft, use_container_width=True)
-            
             st.subheader("Chaotic Dynamics Visualization")
             fig_phase = create_chaotic_phase_plot(binary_output, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
             st.plotly_chart(fig_phase, use_container_width=True)
@@ -279,7 +319,21 @@ def main():
             st.header("Key Generation")
             st.markdown("**Derived Cryptographic Key:**")
             st.code(derived_key)
-            st.markdown("This key was generated by combining the chaotic sequence (influenced by your passphrase) with audio features extracted from the encoded waveform, then hashing the result with SHA‑256.")
+            
+            st.markdown("### Visualizing the Key Generation Process")
+            # Plot raw chaotic sequence
+            fig_chaotic_raw = plot_chaotic_sequence(chaotic_sequence)
+            st.plotly_chart(fig_chaotic_raw, use_container_width=True)
+            # Plot quantized chaotic sequence
+            fig_chaotic_quant = plot_quantized_chaotic_sequence(chaotic_sequence)
+            st.plotly_chart(fig_chaotic_quant, use_container_width=True)
+            # Plot audio feature values
+            fig_audio_features = plot_audio_features(audio_features)
+            st.plotly_chart(fig_audio_features, use_container_width=True)
+            # Plot combined features for comparison
+            fig_combined = plot_combined_features(np.uint8(255 * np.array(chaotic_sequence)), audio_features)
+            st.plotly_chart(fig_combined, use_container_width=True)
+            st.markdown("The key is generated by concatenating the quantized chaotic sequence (derived from your passphrase) with audio features extracted from the encoded waveform, then hashing the result with SHA‑256.")
         
 if __name__ == "__main__":
     main()
