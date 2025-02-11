@@ -145,7 +145,7 @@ def convert_waveform_to_audio_bytes(waveform, sample_rate):
     sf.write(buf, waveform, sample_rate, format='WAV')
     return buf.getvalue()
 
-# ------------------ New Visualization Functions for Key Generation ------------------
+# ------------------ Additional Visualization Functions for Key Generation ------------------
 def get_audio_feature_values(waveform, num_samples=128):
     """
     Extract and quantize amplitude samples from the audio waveform.
@@ -179,10 +179,8 @@ def plot_audio_features(audio_features):
 def plot_combined_features(quantized_chaotic, audio_features):
     """Display quantized chaotic sequence and audio features side by side."""
     fig = make_subplots(rows=1, cols=2, subplot_titles=("Quantized Chaotic Sequence", "Audio Features"))
-    fig.add_trace(go.Scatter(x=list(range(len(quantized_chaotic))), y=quantized_chaotic, mode='lines+markers', name='Quantized Chaotic'),
-                  row=1, col=1)
-    fig.add_trace(go.Scatter(x=list(range(len(audio_features))), y=audio_features, mode='lines+markers', name='Audio Features'),
-                  row=1, col=2)
+    fig.add_trace(go.Scatter(x=list(range(len(quantized_chaotic))), y=quantized_chaotic, mode='lines+markers', name='Quantized Chaotic'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=list(range(len(audio_features))), y=audio_features, mode='lines+markers', name='Audio Features'), row=1, col=2)
     fig.update_layout(title="Combined Features Comparison")
     return fig
 
@@ -256,6 +254,7 @@ def main():
             y0 = st.number_input("y0", value=0.0, step=0.1)
             z0 = st.number_input("z0", value=0.0, step=0.1)
         
+        # Submit button at the bottom
         submit_button = st.form_submit_button(label="Enter")
     
     if submit_button and user_text:
@@ -276,7 +275,7 @@ def main():
                 dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0
             )
             
-            # For key generation, use chaotic_params and number of samples
+            # For key generation, define chaotic_params as (dt, a, b, c) and number of chaotic samples
             chaotic_params = (dt, a, b, c)
             num_chaotic_samples = 128
             derived_key, chaotic_sequence = generate_chaotic_key(passphrase, waveform_encoded, chaotic_params, num_chaotic_samples)
@@ -319,7 +318,6 @@ def main():
             st.header("Key Generation")
             st.markdown("**Derived Cryptographic Key:**")
             st.code(derived_key)
-            
             st.markdown("### Visualizing the Key Generation Process")
             # Plot raw chaotic sequence
             fig_chaotic_raw = plot_chaotic_sequence(chaotic_sequence)
