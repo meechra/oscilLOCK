@@ -5,6 +5,8 @@ from plotly.subplots import make_subplots
 import io
 import soundfile as sf
 import hashlib
+import os
+from datetime import datetime
 
 # ------------------ Module 1: Data Preprocessing ------------------
 def text_to_binary(text, encoding='utf-8'):
@@ -49,7 +51,6 @@ def grouped_binary_to_waveform_plain(binary_str, sample_rate=44100, tone_duratio
 def generate_chaotic_sequence_rossler(n, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
     """
     Generate a sequence of chaotic values using the Rossler attractor.
-    
     Integrated via Euler’s method; the x-component is normalized to [0, 1].
     """
     sequence = []
@@ -95,6 +96,21 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
     
     time_vector = np.linspace(0, len(waveform) / sample_rate, len(waveform), endpoint=False)
     return waveform, time_vector
+
+# ------------------ Audio Synthesis and Storage Module ------------------
+def synthesize_and_store_audio(waveform, sample_rate=44100, filename_prefix="oscilLOCK_audio", file_format="WAV"):
+    """
+    Convert a waveform (NumPy array) into an audio file and save it locally.
+    Returns the full file path.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{filename_prefix}_{timestamp}.{file_format.lower()}"
+    storage_dir = "audio_storage"
+    if not os.path.exists(storage_dir):
+        os.makedirs(storage_dir)
+    full_path = os.path.join(storage_dir, filename)
+    sf.write(full_path, waveform, sample_rate, format=file_format)
+    return full_path
 
 # ------------------ Visualization Functions ------------------
 def create_waveform_figure(waveform, sample_rate, title="Waveform", zoom_range=None):
@@ -254,7 +270,6 @@ def main():
             y0 = st.number_input("y0", value=0.0, step=0.1)
             z0 = st.number_input("z0", value=0.0, step=0.1)
         
-        # Submit button at the bottom
         submit_button = st.form_submit_button(label="Enter")
     
     if submit_button and user_text:
@@ -264,7 +279,7 @@ def main():
             recovered_text = binary_to_text(binary_output)
             sample_rate = 44100
             
-            # Generate encoded and encrypted waveforms
+            # Generate waveforms for encoding and encryption
             waveform_encoded, _ = grouped_binary_to_waveform_plain(
                 binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
                 base_freq=base_freq, freq_range=freq_range
@@ -275,16 +290,20 @@ def main():
                 dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0
             )
             
-            # For key generation, define chaotic_params as (dt, a, b, c) and number of chaotic samples
+            # For key generation, use chaotic_params as (dt, a, b, c)
             chaotic_params = (dt, a, b, c)
             num_chaotic_samples = 128
             derived_key, chaotic_sequence = generate_chaotic_key(passphrase, waveform_encoded, chaotic_params, num_chaotic_samples)
             
             # Extract audio feature values for visualization
             audio_features = get_audio_feature_values(waveform_encoded, num_samples=num_chaotic_samples)
+            
+            # Synthesize and store audio files for both encoded and encrypted waveforms
+            stored_encoded_path = synthesize_and_store_audio(waveform_encoded, sample_rate, filename_prefix="oscilLOCK_encoded")
+            stored_encrypted_path = synthesize_and_store_audio(waveform_encrypted, sample_rate, filename_prefix="oscilLOCK_encrypted")
         
         # Create tabs for the pipeline
-        tab1, tab2, tab3, tab4 = st.tabs(["Preprocessing & Encoding", "Encryption Module", "Comparison", "Key Generation"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["Preprocessing & Encoding", "Encryption Module", "Comparison", "Key Generation", "Storage"])
         
         with tab1:
             st.header("Preprocessing & Encoding")
@@ -303,13 +322,15 @@ def main():
         
         with tab3:
             st.header("Comparison")
-            zoom_range = (0, 0.005)
+            zoom_range = (0, 0.005)  # Zoom in on first 5 ms for time-domain plots
             st.subheader("Difference Waveform (Encrypted - Encoded)")
             fig_diff = create_difference_figure(waveform_encoded, waveform_encrypted, sample_rate, zoom_range=zoom_range)
             st.plotly_chart(fig_diff, use_container_width=True)
+            
             st.subheader("FFT Comparison")
             fig_fft = create_fft_figure(waveform_encoded, waveform_encrypted, sample_rate)
             st.plotly_chart(fig_fft, use_container_width=True)
+            
             st.subheader("Chaotic Dynamics Visualization")
             fig_phase = create_chaotic_phase_plot(binary_output, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
             st.plotly_chart(fig_phase, use_container_width=True)
@@ -332,6 +353,13 @@ def main():
             fig_combined = plot_combined_features(np.uint8(255 * np.array(chaotic_sequence)), audio_features)
             st.plotly_chart(fig_combined, use_container_width=True)
             st.markdown("The key is generated by concatenating the quantized chaotic sequence (derived from your passphrase) with audio features extracted from the encoded waveform, then hashing the result with SHA‑256.")
+        
+        with tab5:
+            st.header("Storage")
+            st.markdown("**Stored Audio Files:**")
+            st.markdown(f"- **Encoded Audio File:** `{stored_encoded_path}`")
+            st.markdown(f"- **Encrypted Audio File:** `{stored_encrypted_path}`")
+            st.markdown("These files were synthesized from the generated waveforms and saved locally.")
         
 if __name__ == "__main__":
     main()
