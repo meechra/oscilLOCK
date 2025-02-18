@@ -47,25 +47,48 @@ def grouped_binary_to_waveform_plain(binary_str, sample_rate=44100, tone_duratio
     time_vector = np.linspace(0, len(waveform) / sample_rate, len(waveform), endpoint=False)
     return waveform, time_vector
 
-# ------------------ Module 3: Chaotic Function Integration using Rossler Attractor ------------------
-def generate_chaotic_sequence_rossler(n, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
+# ------------------ Module 3: Chaotic Function Integration using Runge-Kutta 4 for Rossler Attractor ------------------
+def rossler_derivatives(t, state, a, b, c):
+    """
+    Compute the derivatives for the Rossler attractor.
+    state is a vector [x, y, z].
+    Returns [dx/dt, dy/dt, dz/dt].
+    """
+    x, y, z = state
+    dx = -y - z
+    dy = x + a * y
+    dz = b + z * (x - c)
+    return np.array([dx, dy, dz])
+
+def rk4_step(f, t, state, dt, *params):
+    """
+    Perform one Runge-Kutta 4 step.
+    f is the derivative function, params are additional parameters for f.
+    """
+    k1 = f(t, state, *params)
+    k2 = f(t + dt/2, state + dt/2 * k1, *params)
+    k3 = f(t + dt/2, state + dt/2 * k2, *params)
+    k4 = f(t + dt, state + dt * k3, *params)
+    new_state = state + (dt/6)*(k1 + 2*k2 + 2*k3 + k4)
+    return new_state
+
+def generate_chaotic_sequence_rossler_rk4(n, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
     """
     Generate a sequence of chaotic values using the Rossler attractor.
-    Integrated via Euler’s method; the x-component is normalized to [0, 1].
+    This version uses the Runge-Kutta 4 (RK4) method for numerical integration.
+    The x-component of the state is recorded and normalized to [0, 1].
     """
+    state = np.array([x0, y0, z0], dtype=float)
     sequence = []
-    x, y, z = x0, y0, z0
+    t = 0.0
     for _ in range(n):
-        dx = -y - z
-        dy = x + a * y
-        dz = b + z * (x - c)
-        x += dx * dt
-        y += dy * dt
-        z += dz * dt
-        sequence.append(x)
+        state = rk4_step(rossler_derivatives, t, state, dt, a, b, c)
+        t += dt
+        sequence.append(state[0])
     sequence = np.array(sequence)
-    sequence = (sequence - sequence.min()) / (sequence.max() - sequence.min())
-    return sequence.tolist()
+    # Normalize sequence to [0, 1]
+    normalized = (sequence - sequence.min()) / (sequence.max() - sequence.min())
+    return normalized.tolist()
 
 # ------------------ Module 4: Grouped Binary-to-Waveform with Chaotic Modulation (Encryption) ------------------
 def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_duration=0.2, gap_duration=0.05,
@@ -73,20 +96,22 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
                                        dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
     """
     Convert the binary string into an audio waveform with chaotic modulation.
-    Each byte’s tone frequency is shifted by a chaotic offset (via the Rossler attractor).
+    Each 8-bit chunk is mapped to a tone whose frequency is modulated by a chaotic offset.
+    The chaotic sequence is generated using the RK4 method for the Rossler attractor.
     """
     binary_clean = binary_str.replace(" ", "")
     if len(binary_clean) % 8 != 0:
         binary_clean = binary_clean.ljust(((len(binary_clean) // 8) + 1) * 8, '0')
     bytes_list = [binary_clean[i:i+8] for i in range(0, len(binary_clean), 8)]
     
-    chaos_seq = generate_chaotic_sequence_rossler(len(bytes_list), dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
+    # Generate chaotic sequence using RK4 integration
+    chaotic_sequence = generate_chaotic_sequence_rossler_rk4(len(bytes_list), dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
     
     waveform = np.array([], dtype=np.float32)
     for i, byte_str in enumerate(bytes_list):
         byte_val = int(byte_str, 2)
         freq = base_freq + (byte_val / 255) * freq_range
-        chaotic_offset = chaos_seq[i] * chaos_mod_range
+        chaotic_offset = chaotic_sequence[i] * chaos_mod_range
         modulated_freq = freq + chaotic_offset
         t_tone = np.linspace(0, tone_duration, int(sample_rate * tone_duration), endpoint=False)
         tone = np.sin(2 * np.pi * modulated_freq * t_tone)
@@ -148,7 +173,8 @@ def create_chaotic_phase_plot(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, 
     """
     binary_clean = binary_str.replace(" ", "")
     n_bytes = len(binary_clean) // 8
-    chaotic_sequence = generate_chaotic_sequence_rossler(n_bytes, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
+    # For phase plotting, we use the RK4-based chaotic sequence
+    chaotic_sequence = generate_chaotic_sequence_rossler_rk4(n_bytes, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
     x_vals = chaotic_sequence[:-1]
     y_vals = chaotic_sequence[1:]
     fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode='markers', marker=dict(color='red', size=8)))
@@ -228,14 +254,14 @@ def generate_chaotic_key(passphrase, waveform, chaotic_params, num_chaotic_sampl
     
     Steps:
       1. Derive initial conditions from the passphrase.
-      2. Generate a chaotic sequence with these conditions.
+      2. Generate a chaotic sequence with these conditions using RK4.
       3. Quantize the chaotic sequence to 8-bit values.
       4. Extract audio features from the waveform.
       5. Concatenate the two byte strings and hash them to produce a key.
     """
     x0, y0, z0 = derive_initial_conditions(passphrase)
     dt, a, b, c = chaotic_params
-    chaotic_sequence = generate_chaotic_sequence_rossler(num_chaotic_samples, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
+    chaotic_sequence = generate_chaotic_sequence_rossler_rk4(num_chaotic_samples, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
     chaotic_array = np.array(chaotic_sequence)
     chaotic_quantized = np.uint8(255 * chaotic_array)
     chaotic_bytes = chaotic_quantized.tobytes()
@@ -274,12 +300,12 @@ def main():
     
     if submit_button and user_text:
         with st.spinner("Processing..."):
-            # Data Preprocessing
+            # Data Preprocessing (from Module 1)
             binary_output = text_to_binary(user_text)
             recovered_text = binary_to_text(binary_output)
             sample_rate = 44100
             
-            # Generate waveforms for encoding and encryption
+            # Generate waveforms for encoding and encryption (Module 2 and chaotic integration)
             waveform_encoded, _ = grouped_binary_to_waveform_plain(
                 binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
                 base_freq=base_freq, freq_range=freq_range
@@ -298,10 +324,9 @@ def main():
             # Extract audio feature values for visualization
             audio_features = get_audio_feature_values(waveform_encoded, num_samples=num_chaotic_samples)
             
-            # Prepare encrypted audio bytes for download in the selected format later
-            # (Default conversion is to WAV; we'll override this based on user selection)
+            # Prepare encrypted audio bytes for download (default to WAV; user chooses format in Storage tab)
         
-        # Create tabs for the pipeline (5 tabs now)
+        # Create tabs for the pipeline (5 tabs)
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["Preprocessing & Encoding", "Encryption Module", "Comparison", "Key Generation", "Storage"])
         
         with tab1:
@@ -353,7 +378,6 @@ def main():
             st.header("Storage")
             st.markdown("Select a format to download the encrypted audio file:")
             file_format = st.selectbox("Download Format", options=["WAV", "FLAC", "OGG"], index=0)
-            # Convert the encrypted waveform to the selected format
             if file_format.upper() == "WAV":
                 mime_type = "audio/wav"
             elif file_format.upper() == "FLAC":
