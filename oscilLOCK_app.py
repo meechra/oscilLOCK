@@ -92,7 +92,7 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
         binary_clean = binary_clean.ljust(((len(binary_clean) // 8) + 1) * 8, '0')
     bytes_list = [binary_clean[i:i+8] for i in range(0, len(binary_clean), 8)]
     
-    # Generate chaotic sequence using RK4; initial conditions will be derived from the passphrase (see Key Generation)
+    # Generate chaotic sequence using RK4
     chaotic_sequence = generate_chaotic_sequence_rossler_rk4(len(bytes_list), dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
     
     waveform = np.array([], dtype=np.float32)
@@ -246,7 +246,6 @@ def generate_chaotic_key(passphrase, waveform, chaotic_params, num_chaotic_sampl
       4. Extract audio features from the waveform.
       5. Concatenate the two byte strings and hash them to produce a key.
     """
-    # Derive initial conditions from passphrase (x0, y0, z0)
     x0, y0, z0 = derive_initial_conditions(passphrase)
     dt, a, b, c = chaotic_params
     chaotic_sequence = generate_chaotic_sequence_rossler_rk4(num_chaotic_samples, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
@@ -280,40 +279,42 @@ def main():
             a = st.slider("a", 0.1, 1.0, 0.2, step=0.1)
             b = st.slider("b", 0.1, 1.0, 0.2, step=0.1)
             c = st.slider("c", 1.0, 10.0, 5.7, step=0.1)
-            # NOTE: x0, y0, z0 are removed from the UI; they are derived from the passphrase.
+            # Removed tunability for x0, y0, z0 since they are derived from the passphrase
         
         submit_button = st.form_submit_button(label="Enter")
     
     if submit_button and user_text:
         with st.spinner("Processing..."):
-            # Data Preprocessing
+            # Data Preprocessing (Module 1)
             binary_output = text_to_binary(user_text)
             recovered_text = binary_to_text(binary_output)
             sample_rate = 44100
             
-            # Generate encoded waveform (plain mapping)
+            # Generate encoded waveform (Module 2)
             waveform_encoded, _ = grouped_binary_to_waveform_plain(
                 binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
                 base_freq=base_freq, freq_range=freq_range
             )
-            # Derive initial conditions from passphrase for chaotic modulation:
+            
+            # Derive initial conditions from passphrase (for chaotic integration)
             derived_x0, derived_y0, derived_z0 = derive_initial_conditions(passphrase)
-            # Generate encrypted waveform using chaotic modulation with RK4-based chaotic sequence.
+            
+            # Generate encrypted waveform with chaotic modulation (Module 3/4)
             waveform_encrypted, _ = grouped_binary_to_waveform_chaotic(
                 binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
                 base_freq=base_freq, freq_range=freq_range, chaos_mod_range=chaos_mod_range,
                 dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0
             )
             
-            # For key generation, define chaotic_params as (dt, a, b, c) and number of chaotic samples
+            # For key generation, use chaotic_params as (dt, a, b, c)
             chaotic_params = (dt, a, b, c)
             num_chaotic_samples = 128
             derived_key, chaotic_sequence = generate_chaotic_key(passphrase, waveform_encoded, chaotic_params, num_chaotic_samples)
             
-            # Extract audio features from encoded waveform for key generation visualization
+            # Extract audio feature values from encoded waveform for key visualization
             audio_features = get_audio_feature_values(waveform_encoded, num_samples=num_chaotic_samples)
             
-            # Prepare encrypted audio bytes for download (default to WAV; user can select format in Storage tab)
+            # Prepare encrypted audio bytes for download (user chooses format in Storage tab)
         
         # Create tabs for the pipeline (5 tabs)
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -351,7 +352,7 @@ def main():
             st.plotly_chart(fig_fft, use_container_width=True)
             
             st.subheader("Chaotic Dynamics Visualization")
-            fig_phase = create_chaotic_phase_plot(binary_output, dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=y0, z0=z0)
+            fig_phase = create_chaotic_phase_plot(binary_output, dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0)
             st.plotly_chart(fig_phase, use_container_width=True)
         
         with tab4:
