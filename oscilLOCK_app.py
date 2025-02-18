@@ -47,46 +47,34 @@ def grouped_binary_to_waveform_plain(binary_str, sample_rate=44100, tone_duratio
     time_vector = np.linspace(0, len(waveform) / sample_rate, len(waveform), endpoint=False)
     return waveform, time_vector
 
-# ------------------ Module 3: Chaotic Function Integration using Runge-Kutta 4 for Rossler Attractor ------------------
-def rossler_derivatives(t, state, a, b, c):
-    """
-    Compute the derivatives for the Rossler attractor.
-    state is a vector [x, y, z].
-    Returns [dx/dt, dy/dt, dz/dt].
-    """
+# ------------------ Module 3: Chaotic Function Integration using RK4 for Rossler Attractor ------------------
+def rossler_derivatives(state, a, b, c):
+    """Compute the derivatives for the Rossler attractor given state = [x, y, z]."""
     x, y, z = state
     dx = -y - z
     dy = x + a * y
     dz = b + z * (x - c)
     return np.array([dx, dy, dz])
 
-def rk4_step(f, t, state, dt, *params):
-    """
-    Perform one Runge-Kutta 4 step.
-    f is the derivative function, params are additional parameters for f.
-    """
-    k1 = f(t, state, *params)
-    k2 = f(t + dt/2, state + dt/2 * k1, *params)
-    k3 = f(t + dt/2, state + dt/2 * k2, *params)
-    k4 = f(t + dt, state + dt * k3, *params)
-    new_state = state + (dt/6)*(k1 + 2*k2 + 2*k3 + k4)
-    return new_state
+def rk4_step(state, dt, a, b, c):
+    """Perform a single RK4 integration step for the Rossler system."""
+    k1 = rossler_derivatives(state, a, b, c)
+    k2 = rossler_derivatives(state + dt/2 * k1, a, b, c)
+    k3 = rossler_derivatives(state + dt/2 * k2, a, b, c)
+    k4 = rossler_derivatives(state + dt * k3, a, b, c)
+    return state + (dt/6) * (k1 + 2*k2 + 2*k3 + k4)
 
 def generate_chaotic_sequence_rossler_rk4(n, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
     """
-    Generate a sequence of chaotic values using the Rossler attractor.
-    This version uses the Runge-Kutta 4 (RK4) method for numerical integration.
-    The x-component of the state is recorded and normalized to [0, 1].
+    Generate a sequence of chaotic x-values using the Rossler attractor solved by RK4.
+    The sequence is normalized to the range [0, 1].
     """
     state = np.array([x0, y0, z0], dtype=float)
     sequence = []
-    t = 0.0
     for _ in range(n):
-        state = rk4_step(rossler_derivatives, t, state, dt, a, b, c)
-        t += dt
+        state = rk4_step(state, dt, a, b, c)
         sequence.append(state[0])
     sequence = np.array(sequence)
-    # Normalize sequence to [0, 1]
     normalized = (sequence - sequence.min()) / (sequence.max() - sequence.min())
     return normalized.tolist()
 
@@ -96,15 +84,15 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
                                        dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
     """
     Convert the binary string into an audio waveform with chaotic modulation.
-    Each 8-bit chunk is mapped to a tone whose frequency is modulated by a chaotic offset.
-    The chaotic sequence is generated using the RK4 method for the Rossler attractor.
+    Each byte’s tone frequency is shifted by a chaotic offset.
+    The chaotic sequence is generated using the RK4 method.
     """
     binary_clean = binary_str.replace(" ", "")
     if len(binary_clean) % 8 != 0:
         binary_clean = binary_clean.ljust(((len(binary_clean) // 8) + 1) * 8, '0')
     bytes_list = [binary_clean[i:i+8] for i in range(0, len(binary_clean), 8)]
     
-    # Generate chaotic sequence using RK4 integration
+    # Generate chaotic sequence using RK4
     chaotic_sequence = generate_chaotic_sequence_rossler_rk4(len(bytes_list), dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
     
     waveform = np.array([], dtype=np.float32)
@@ -169,11 +157,10 @@ def create_difference_figure(waveform_plain, waveform_chaotic, sample_rate, zoom
 def create_chaotic_phase_plot(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
     """
     Generate and return a phase plot (scatter plot of x[i+1] vs x[i]) of the chaotic sequence
-    produced by the Rossler attractor. The number of points equals the number of 8-bit chunks in the binary string.
+    produced by the Rossler attractor using RK4 integration.
     """
     binary_clean = binary_str.replace(" ", "")
     n_bytes = len(binary_clean) // 8
-    # For phase plotting, we use the RK4-based chaotic sequence
     chaotic_sequence = generate_chaotic_sequence_rossler_rk4(n_bytes, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
     x_vals = chaotic_sequence[:-1]
     y_vals = chaotic_sequence[1:]
@@ -261,6 +248,7 @@ def generate_chaotic_key(passphrase, waveform, chaotic_params, num_chaotic_sampl
     """
     x0, y0, z0 = derive_initial_conditions(passphrase)
     dt, a, b, c = chaotic_params
+    # Use RK4-based chaotic sequence generator:
     chaotic_sequence = generate_chaotic_sequence_rossler_rk4(num_chaotic_samples, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
     chaotic_array = np.array(chaotic_sequence)
     chaotic_quantized = np.uint8(255 * chaotic_array)
@@ -300,12 +288,12 @@ def main():
     
     if submit_button and user_text:
         with st.spinner("Processing..."):
-            # Data Preprocessing (from Module 1)
+            # Data Preprocessing
             binary_output = text_to_binary(user_text)
             recovered_text = binary_to_text(binary_output)
             sample_rate = 44100
             
-            # Generate waveforms for encoding and encryption (Module 2 and chaotic integration)
+            # Generate waveforms for encoding and encryption
             waveform_encoded, _ = grouped_binary_to_waveform_plain(
                 binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
                 base_freq=base_freq, freq_range=freq_range
@@ -327,7 +315,13 @@ def main():
             # Prepare encrypted audio bytes for download (default to WAV; user chooses format in Storage tab)
         
         # Create tabs for the pipeline (5 tabs)
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["Preprocessing & Encoding", "Encryption Module", "Comparison", "Key Generation", "Storage"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "Preprocessing & Encoding", 
+            "Encryption Module", 
+            "Comparison", 
+            "Key Generation", 
+            "Storage"
+        ])
         
         with tab1:
             st.header("Preprocessing & Encoding")
