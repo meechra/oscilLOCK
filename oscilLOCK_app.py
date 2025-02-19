@@ -279,18 +279,18 @@ def main():
             a = st.slider("a", 0.1, 1.0, 0.2, step=0.1)
             b = st.slider("b", 0.1, 1.0, 0.2, step=0.1)
             c = st.slider("c", 1.0, 10.0, 5.7, step=0.1)
-            # Removed tunability for x0, y0, z0 since they are derived from the passphrase
+            # Initial conditions (x0, y0, z0) are derived from the passphrase.
         
         submit_button = st.form_submit_button(label="Enter")
     
     if submit_button and user_text:
         with st.spinner("Processing..."):
-            # Data Preprocessing (Module 1)
+            # Module 1: Data Preprocessing
             binary_output = text_to_binary(user_text)
             recovered_text = binary_to_text(binary_output)
             sample_rate = 44100
             
-            # Generate encoded waveform (Module 2)
+            # Module 2: Generate Encoded Waveform (Plain Mapping)
             waveform_encoded, _ = grouped_binary_to_waveform_plain(
                 binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
                 base_freq=base_freq, freq_range=freq_range
@@ -299,14 +299,14 @@ def main():
             # Derive initial conditions from passphrase (for chaotic integration)
             derived_x0, derived_y0, derived_z0 = derive_initial_conditions(passphrase)
             
-            # Generate encrypted waveform with chaotic modulation (Module 3/4)
+            # Module 3/4: Generate Encrypted Waveform with Chaotic Modulation
             waveform_encrypted, _ = grouped_binary_to_waveform_chaotic(
                 binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
                 base_freq=base_freq, freq_range=freq_range, chaos_mod_range=chaos_mod_range,
                 dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0
             )
             
-            # For key generation, use chaotic_params as (dt, a, b, c)
+            # Key Generation: Use chaotic_params (dt, a, b, c) and a fixed number of chaotic samples
             chaotic_params = (dt, a, b, c)
             num_chaotic_samples = 128
             derived_key, chaotic_sequence = generate_chaotic_key(passphrase, waveform_encoded, chaotic_params, num_chaotic_samples)
@@ -314,8 +314,10 @@ def main():
             # Extract audio feature values from encoded waveform for key visualization
             audio_features = get_audio_feature_values(waveform_encoded, num_samples=num_chaotic_samples)
             
-            # Prepare encrypted audio bytes for download (user chooses format in Storage tab)
-        
+            # Save the encrypted audio to disk (this call returns a timestamped filename)
+            stored_filename = synthesize_and_store_audio(waveform_encrypted, sample_rate, filename_prefix="encrypted_audio")
+            
+            # Prepare encrypted audio bytes for download; we'll let the user choose format in the Storage tab
         # Create tabs for the pipeline (5 tabs)
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "Preprocessing & Encoding", 
@@ -342,7 +344,7 @@ def main():
         
         with tab3:
             st.header("Comparison")
-            zoom_range = (0, 0.005)  # Zoom in on first 5 ms for time-domain plots
+            zoom_range = (0, 0.005)
             st.subheader("Difference Waveform (Encrypted - Encoded)")
             fig_diff = create_difference_figure(waveform_encoded, waveform_encrypted, sample_rate, zoom_range=zoom_range)
             st.plotly_chart(fig_diff, use_container_width=True)
@@ -383,9 +385,11 @@ def main():
             else:
                 mime_type = "audio/wav"
             download_audio = convert_waveform_to_audio_bytes(waveform_encrypted, sample_rate, file_format=file_format.upper())
+            # Use the stored filename (without path) for download to ensure consistency:
+            stored_basename = os.path.basename(stored_filename)
             st.download_button(label=f"Download Encrypted Audio ({file_format.upper()})",
                                data=download_audio,
-                               file_name=f"encrypted_audio.{file_format.lower()}",
+                               file_name=stored_basename,
                                mime=mime_type)
 
 if __name__ == "__main__":
