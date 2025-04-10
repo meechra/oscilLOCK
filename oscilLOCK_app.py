@@ -59,7 +59,7 @@ def grouped_binary_to_waveform(binary_str, sample_rate=44100, tone_duration=0.2,
     Returns the waveform and corresponding time vector.
     """
     binary_clean = pad_binary_str(binary_str)
-    bytes_list = [binary_clean[i : i + 8] for i in range(0, len(binary_clean), 8)]
+    bytes_list = [binary_clean[i: i+8] for i in range(0, len(binary_clean), 8)]
     
     waveform_segments = []
     for byte_str in bytes_list:
@@ -101,8 +101,8 @@ def generate_chaotic_sequence(n, dt=0.01, a=0.2, b=0.2, c=5.7,
     Generate a normalized chaotic sequence using the Rossler attractor and RK4 integration.
     
     Steps:
-      1. Perform 'burn_in' RK4 steps (discard these) to allow transients to settle.
-      2. Collect 'n' further samples into the sequence.
+      1. Perform 'burn_in' RK4 steps to let transients settle (discard results).
+      2. Collect 'n' samples from the settled system.
       3. Normalize the sequence to the range [0, 1].
     """
     state = np.array([x0, y0, z0], dtype=float)
@@ -257,25 +257,39 @@ def plot_correlation_coefficient(waveform_plain, waveform_chaotic, max_points=10
     )
     return fig
 
-def create_chaotic_phase_plot(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7,
-                              x0=0.1, y0=0.0, z0=0.0, max_points=1000, burn_in=100):
+def create_chaotic_phase_plot_3d(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7,
+                                 x0=0.1, y0=0.0, z0=0.0, max_points=1000, burn_in=100):
     """
-    Generate a phase plot from the chaotic sequence: x[i+1] versus x[i],
-    downsampled for visualization.
+    Generate a 3D phase plot from the chaotic sequence using the Rossler attractor.
+    The plot shows (x, y, z) points after a burn-in period.
     """
     binary_clean = binary_str.replace(" ", "")
     n_bytes = len(binary_clean) // 8
-    chaotic_sequence = generate_chaotic_sequence(n_bytes, dt=dt, a=a, b=b, c=c,
-                                                 x0=x0, y0=y0, z0=z0, burn_in=burn_in)
-    x_vals = np.array(chaotic_sequence[:-1])
-    y_vals = np.array(chaotic_sequence[1:])
+    # Generate a chaotic sequence for n_bytes; here we generate full 3D trajectories.
+    # Instead of sampling only x values, collect x, y, and z during integration.
+    state = np.array([x0, y0, z0], dtype=float)
+    # Burn-in phase
+    for _ in range(burn_in):
+        state = rk4_step(state, dt, a, b, c)
+    trajectory = []
+    for _ in range(n_bytes):
+        state = rk4_step(state, dt, a, b, c)
+        trajectory.append(state.copy())
+    trajectory = np.array(trajectory)
     
-    x_ds = downsample_data(x_vals, max_points)
-    y_ds = downsample_data(y_vals, max_points)
+    # Downsample the trajectory for plotting
+    trajectory_ds = trajectory[::max(1, int(len(trajectory)/max_points))]
     
-    fig = go.Figure(data=go.Scatter(x=x_ds, y=y_ds, mode="markers",
-                                    marker=dict(color="red", size=8)))
-    fig.update_layout(title="Chaotic Phase Plot", xaxis_title="x[i]", yaxis_title="x[i+1]")
+    fig = go.Figure(data=[go.Scatter3d(
+        x=trajectory_ds[:,0],
+        y=trajectory_ds[:,1],
+        z=trajectory_ds[:,2],
+        mode="markers",
+        marker=dict(size=3, color=trajectory_ds[:,0], colorscale="Viridis"),
+    )])
+    fig.update_layout(title="3D Chaotic Phase Plot", scene=dict(
+        xaxis_title="x", yaxis_title="y", zaxis_title="z"
+    ))
     return fig
 
 def plot_chaotic_sequence(chaotic_sequence, max_points=1000):
@@ -389,6 +403,7 @@ def main():
             a = st.slider("a", 0.1, 1.0, 0.2, step=0.1)
             b = st.slider("b", 0.1, 1.0, 0.2, step=0.1)
             c = st.slider("c", 1.0, 10.0, 5.7, step=0.1)
+            burn_in = st.slider("Burn-in Steps", 0, 1000, 100, step=50)
             # Initial conditions are derived solely from the passphrase.
         submit_button = st.form_submit_button(label="Enter")
     
@@ -423,7 +438,7 @@ def main():
                 chaos_mod_range=chaos_mod_range,
                 dt=dt, a=a, b=b, c=c,
                 x0=derived_x0, y0=derived_y0, z0=derived_z0,
-                burn_in=100
+                burn_in=burn_in
             )
             
             # Key Generation
@@ -471,10 +486,10 @@ def main():
             fig_fft = create_fft_figure(waveform_encoded, waveform_encrypted, sample_rate)
             st.plotly_chart(fig_fft, use_container_width=True)
             
-            st.subheader("Chaotic Dynamics Visualization")
-            fig_phase = create_chaotic_phase_plot(
+            st.subheader("3D Chaotic Phase Visualization")
+            fig_phase = create_chaotic_phase_plot_3d(
                 binary_output, dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0,
-                burn_in=100
+                burn_in=burn_in
             )
             st.plotly_chart(fig_phase, use_container_width=True)
         
