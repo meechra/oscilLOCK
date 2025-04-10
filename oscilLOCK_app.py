@@ -8,66 +8,83 @@ import hashlib
 import os
 from datetime import datetime
 
-# ------------------ Module 1: Data Preprocessing ------------------
-def text_to_binary(text, encoding='utf-8'):
-    """Convert text to its binary representation."""
-    byte_array = text.encode(encoding)
-    binary_str = ' '.join(format(byte, '08b') for byte in byte_array)
-    return binary_str
-
-def binary_to_text(binary_str, encoding='utf-8'):
-    """Convert a binary string back to text."""
-    byte_list = binary_str.split()
-    byte_array = bytearray(int(b, 2) for b in byte_list)
-    text = byte_array.decode(encoding)
-    return text
-
-# ------------------ Module 2: Grouped Binary-to-Waveform (Plain Mapping) ------------------
-def grouped_binary_to_waveform_plain(binary_str, sample_rate=44100, tone_duration=0.2, gap_duration=0.05,
-                                     base_freq=300, freq_range=700):
+# ------------------------------------------------------------------
+# Section 1: Data Preprocessing
+# ------------------------------------------------------------------
+def text_to_binary(text, encoding="utf-8"):
     """
-    Convert the binary string (grouped into 8-bit chunks) into an audio waveform 
-    without chaotic modulation.
+    Convert a text string to its binary representation.
+    Each byte is represented as an 8-bit binary string.
+    """
+    return " ".join(format(byte, "08b") for byte in text.encode(encoding))
+
+def binary_to_text(binary_str, encoding="utf-8"):
+    """
+    Convert a binary string (space-separated 8-bit chunks) back to text.
+    """
+    byte_list = binary_str.split()
+    return bytearray(int(b, 2) for b in byte_list).decode(encoding)
+
+def pad_binary_str(binary_str):
+    """
+    Remove spaces from the binary string and pad it to ensure its length is a multiple of 8.
     """
     binary_clean = binary_str.replace(" ", "")
     if len(binary_clean) % 8 != 0:
-        binary_clean = binary_clean.ljust(((len(binary_clean) // 8) + 1) * 8, '0')
-    bytes_list = [binary_clean[i:i+8] for i in range(0, len(binary_clean), 8)]
+        binary_clean = binary_clean.ljust(((len(binary_clean) // 8) + 1) * 8, "0")
+    return binary_clean
+
+# ------------------------------------------------------------------
+# Section 2: Audio Waveform Generation
+# ------------------------------------------------------------------
+def grouped_binary_to_waveform(binary_str, sample_rate=44100, tone_duration=0.2,
+                               gap_duration=0.05, base_freq=300, freq_range=700):
+    """
+    Map each 8-bit group from the binary string to a tone whose frequency is computed
+    by a linear mapping. A silence gap is added after each tone.
+    Returns the waveform and corresponding time vector.
+    """
+    binary_clean = pad_binary_str(binary_str)
+    bytes_list = [binary_clean[i : i + 8] for i in range(0, len(binary_clean), 8)]
     
-    waveform = np.array([], dtype=np.float32)
+    waveform_segments = []
     for byte_str in bytes_list:
         byte_val = int(byte_str, 2)
         freq = base_freq + (byte_val / 255) * freq_range
         t_tone = np.linspace(0, tone_duration, int(sample_rate * tone_duration), endpoint=False)
         tone = np.sin(2 * np.pi * freq * t_tone)
-        gap_samples = int(sample_rate * gap_duration)
-        gap = np.zeros(gap_samples, dtype=np.float32)
-        waveform = np.concatenate((waveform, tone, gap))
+        gap = np.zeros(int(sample_rate * gap_duration), dtype=np.float32)
+        waveform_segments.append(tone)
+        waveform_segments.append(gap)
         
+    waveform = np.concatenate(waveform_segments)
     time_vector = np.linspace(0, len(waveform) / sample_rate, len(waveform), endpoint=False)
     return waveform, time_vector
 
-# ------------------ Module 3: Chaotic Function Integration using RK4 for Rossler Attractor ------------------
+# ------------------------------------------------------------------
+# Section 3: Chaotic System (Rossler Attractor) Functions
+# ------------------------------------------------------------------
 def rossler_derivatives(state, a, b, c):
-    """Compute the derivatives for the Rossler attractor given state = [x, y, z]."""
+    """
+    Compute the derivatives of the Rossler attractor.
+    """
     x, y, z = state
-    dx = -y - z
-    dy = x + a * y
-    dz = b + z * (x - c)
-    return np.array([dx, dy, dz])
+    return np.array([-y - z, x + a * y, b + z * (x - c)])
 
 def rk4_step(state, dt, a, b, c):
-    """Perform a single RK4 integration step for the Rossler system."""
-    k1 = rossler_derivatives(state, a, b, c)
-    k2 = rossler_derivatives(state + dt/2 * k1, a, b, c)
-    k3 = rossler_derivatives(state + dt/2 * k2, a, b, c)
-    k4 = rossler_derivatives(state + dt * k3, a, b, c)
-    return state + (dt/6) * (k1 + 2*k2 + 2*k3 + k4)
-
-def generate_chaotic_sequence_rossler_rk4(n, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
     """
-    Generate a sequence of chaotic x-values using the Rossler attractor solved by RK4.
-    The sequence is normalized to the range [0, 1].
+    Perform a single Runge-Kutta 4th order integration step.
+    """
+    k1 = rossler_derivatives(state, a, b, c)
+    k2 = rossler_derivatives(state + dt / 2 * k1, a, b, c)
+    k3 = rossler_derivatives(state + dt / 2 * k2, a, b, c)
+    k4 = rossler_derivatives(state + dt * k3, a, b, c)
+    return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+def generate_chaotic_sequence(n, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
+    """
+    Generate a normalized chaotic sequence using the Rossler attractor and RK4 integration.
+    Optionally, a burn-in period can be added to skip initial transient behavior.
     """
     state = np.array([x0, y0, z0], dtype=float)
     sequence = []
@@ -78,23 +95,24 @@ def generate_chaotic_sequence_rossler_rk4(n, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.
     normalized = (sequence - sequence.min()) / (sequence.max() - sequence.min())
     return normalized.tolist()
 
-# ------------------ Module 4: Grouped Binary-to-Waveform with Chaotic Modulation (Encryption) ------------------
-def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_duration=0.2, gap_duration=0.05,
-                                       base_freq=300, freq_range=700, chaos_mod_range=100,
-                                       dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
+# ------------------------------------------------------------------
+# Section 4: Audio Waveform with Chaotic Modulation (Encryption)
+# ------------------------------------------------------------------
+def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_duration=0.2,
+                                       gap_duration=0.05, base_freq=300, freq_range=700,
+                                       chaos_mod_range=100, dt=0.01, a=0.2, b=0.2,
+                                       c=5.7, x0=0.1, y0=0.0, z0=0.0):
     """
-    Convert the binary string into an audio waveform with chaotic modulation.
-    Each 8-bit chunk is mapped to a tone whose frequency is shifted by a chaotic offset.
-    The chaotic sequence is generated using RK4 integration of the Rossler attractor.
+    Map each 8-bit group from the binary string to a tone and modulate its frequency
+    with a chaotic offset computed from the Rossler attractor.
+    Returns the chaotic-modulated waveform and time vector.
     """
-    binary_clean = binary_str.replace(" ", "")
-    if len(binary_clean) % 8 != 0:
-        binary_clean = binary_clean.ljust(((len(binary_clean) // 8) + 1) * 8, '0')
-    bytes_list = [binary_clean[i:i+8] for i in range(0, len(binary_clean), 8)]
+    binary_clean = pad_binary_str(binary_str)
+    bytes_list = [binary_clean[i: i+8] for i in range(0, len(binary_clean), 8)]
+    chaotic_sequence = generate_chaotic_sequence(len(bytes_list), dt=dt, a=a, b=b, c=c,
+                                                   x0=x0, y0=y0, z0=z0)
     
-    chaotic_sequence = generate_chaotic_sequence_rossler_rk4(len(bytes_list), dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
-    
-    waveform = np.array([], dtype=np.float32)
+    waveform_segments = []
     for i, byte_str in enumerate(bytes_list):
         byte_val = int(byte_str, 2)
         freq = base_freq + (byte_val / 255) * freq_range
@@ -102,17 +120,20 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
         modulated_freq = freq + chaotic_offset
         t_tone = np.linspace(0, tone_duration, int(sample_rate * tone_duration), endpoint=False)
         tone = np.sin(2 * np.pi * modulated_freq * t_tone)
-        gap_samples = int(sample_rate * gap_duration)
-        gap = np.zeros(gap_samples, dtype=np.float32)
-        waveform = np.concatenate((waveform, tone, gap))
-    
+        gap = np.zeros(int(sample_rate * gap_duration), dtype=np.float32)
+        waveform_segments.append(tone)
+        waveform_segments.append(gap)
+        
+    waveform = np.concatenate(waveform_segments)
     time_vector = np.linspace(0, len(waveform) / sample_rate, len(waveform), endpoint=False)
     return waveform, time_vector
 
-# ------------------ Audio Synthesis and Storage Module ------------------
+# ------------------------------------------------------------------
+# Section 5: Audio Synthesis & Storage
+# ------------------------------------------------------------------
 def synthesize_and_store_audio(waveform, sample_rate=44100, filename_prefix="oscilLOCK_audio", file_format="WAV"):
     """
-    Convert a waveform (NumPy array) into an audio file and save it locally.
+    Write the provided waveform to an audio file. The file is saved using a timestamped filename.
     Returns the full file path.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -124,143 +145,165 @@ def synthesize_and_store_audio(waveform, sample_rate=44100, filename_prefix="osc
     sf.write(full_path, waveform, sample_rate, format=file_format)
     return full_path
 
-# ------------------ Visualization Functions ------------------
+def convert_waveform_to_audio_bytes(waveform, sample_rate, file_format="WAV"):
+    """
+    Convert the numpy waveform into audio bytes for playback or download.
+    """
+    buf = io.BytesIO()
+    sf.write(buf, waveform, sample_rate, format=file_format)
+    return buf.getvalue()
+
+# ------------------------------------------------------------------
+# Section 6: Visualization Functions (Plotly)
+# ------------------------------------------------------------------
 def create_waveform_figure(waveform, sample_rate, title="Waveform", zoom_range=None):
-    """Return a Plotly figure of the waveform."""
+    """
+    Create a Plotly line chart of the waveform versus time.
+    """
     time_vector = np.linspace(0, len(waveform) / sample_rate, len(waveform), endpoint=False)
-    fig = go.Figure(data=go.Scatter(x=time_vector, y=waveform, mode='lines', name='Waveform'))
-    fig.update_layout(title=title, xaxis_title="Time (s)", yaxis_title="Amplitude", hovermode='x')
+    fig = go.Figure(data=go.Scatter(x=time_vector, y=waveform, mode="lines", name="Waveform"))
+    fig.update_layout(title=title, xaxis_title="Time (s)", yaxis_title="Amplitude", hovermode="x")
     if zoom_range:
         fig.update_xaxes(range=[zoom_range[0], zoom_range[1]])
     return fig
 
 def create_fft_figure(waveform_plain, waveform_chaotic, sample_rate):
-    """Return a Plotly figure comparing the FFTs of the plain and chaotic waveforms."""
+    """
+    Create a Plotly figure comparing the FFTs of the plain (encoded) and chaotic (encrypted) waveforms.
+    """
     N = len(waveform_plain)
     fft_plain = np.abs(np.fft.rfft(waveform_plain))
     fft_chaotic = np.abs(np.fft.rfft(waveform_chaotic))
     freqs = np.fft.rfftfreq(N, d=1/sample_rate)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=freqs, y=fft_plain, mode='lines', name='Encoded Audio FFT'))
-    fig.add_trace(go.Scatter(x=freqs, y=fft_chaotic, mode='lines', name='Encrypted Audio FFT'))
+    fig.add_trace(go.Scatter(x=freqs, y=fft_plain, mode="lines", name="Encoded Audio FFT"))
+    fig.add_trace(go.Scatter(x=freqs, y=fft_chaotic, mode="lines", name="Encrypted Audio FFT"))
     fig.update_layout(title="FFT Comparison", xaxis_title="Frequency (Hz)", yaxis_title="Magnitude")
     fig.update_xaxes(range=[0, 1500])
     return fig
 
 def create_difference_figure(waveform_plain, waveform_chaotic, sample_rate, zoom_range=(0, 0.005)):
-    """Return a Plotly figure of the difference waveform (encrypted - encoded) zoomed in."""
+    """
+    Create a Plotly chart of the difference (encrypted minus encoded waveform) zoomed in.
+    """
     diff_waveform = waveform_chaotic - waveform_plain
     fig = create_waveform_figure(diff_waveform, sample_rate, title="Difference Waveform (Zoomed-In)", zoom_range=zoom_range)
     return fig
 
 def create_chaotic_phase_plot(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
     """
-    Generate and return a phase plot (scatter plot of x[i+1] vs x[i]) of the chaotic sequence
-    produced by the Rossler attractor using RK4 integration.
+    Generate a phase plot from the chaotic sequence: x[i+1] versus x[i].
     """
     binary_clean = binary_str.replace(" ", "")
     n_bytes = len(binary_clean) // 8
-    chaotic_sequence = generate_chaotic_sequence_rossler_rk4(n_bytes, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
+    chaotic_sequence = generate_chaotic_sequence(n_bytes, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
     x_vals = chaotic_sequence[:-1]
     y_vals = chaotic_sequence[1:]
-    fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode='markers', marker=dict(color='red', size=8)))
+    fig = go.Figure(data=go.Scatter(x=x_vals, y=y_vals, mode="markers",
+                                    marker=dict(color="red", size=8)))
     fig.update_layout(title="Chaotic Phase Plot", xaxis_title="x[i]", yaxis_title="x[i+1]")
     return fig
 
-def convert_waveform_to_audio_bytes(waveform, sample_rate, file_format="WAV"):
-    """Convert a numpy waveform to audio bytes for playback in the specified format."""
-    buf = io.BytesIO()
-    sf.write(buf, waveform, sample_rate, format=file_format)
-    return buf.getvalue()
+def plot_chaotic_sequence(chaotic_sequence):
+    """
+    Plot the raw chaotic sequence.
+    """
+    fig = go.Figure(data=go.Scatter(x=list(range(len(chaotic_sequence))), 
+                                    y=chaotic_sequence, mode="lines", name="Chaotic Sequence"))
+    fig.update_layout(title="Raw Chaotic Sequence", xaxis_title="Index", yaxis_title="Value")
+    return fig
 
-# ------------------ Additional Visualization Functions for Key Generation ------------------
+def plot_quantized_chaotic_sequence(chaotic_sequence):
+    """
+    Plot the quantized version of the chaotic sequence (8-bit values).
+    """
+    chaotic_array = np.array(chaotic_sequence)
+    quantized = np.uint8(255 * chaotic_array)
+    fig = go.Figure(data=go.Scatter(x=list(range(len(quantized))), y=quantized,
+                                    mode="lines+markers", name="Quantized Chaotic Sequence"))
+    fig.update_layout(title="Quantized Chaotic Sequence", xaxis_title="Index", yaxis_title="Value (0-255)")
+    return fig
+
+def plot_audio_features(audio_features):
+    """
+    Plot the quantized audio feature values.
+    """
+    fig = go.Figure(data=go.Scatter(x=list(range(len(audio_features))), y=audio_features,
+                                    mode="lines+markers", name="Audio Features"))
+    fig.update_layout(title="Audio Features (Quantized)", xaxis_title="Index", yaxis_title="Value (0-255)")
+    return fig
+
+def plot_combined_features(quantized_chaotic, audio_features):
+    """
+    Plot the quantized chaotic sequence alongside the audio features.
+    """
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("Quantized Chaotic Sequence", "Audio Features"))
+    fig.add_trace(go.Scatter(x=list(range(len(quantized_chaotic))), y=quantized_chaotic,
+                             mode="lines+markers", name="Quantized Chaotic"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=list(range(len(audio_features))), y=audio_features,
+                             mode="lines+markers", name="Audio Features"), row=1, col=2)
+    fig.update_layout(title="Combined Features Comparison")
+    return fig
+
+# ------------------------------------------------------------------
+# Section 7: Key Generation Functions
+# ------------------------------------------------------------------
+def derive_initial_conditions(passphrase):
+    """
+    Derive initial conditions for the chaotic system from the SHA‑256 hash of the passphrase.
+    The hash is split into three parts for x0, y0, and z0 using a normalization constant.
+    """
+    hash_digest = hashlib.sha256(passphrase.encode()).hexdigest()  # 64 hex characters
+    norm_const = float(0xFFFFFFFFFFFFFFFFFFFFF)
+    x0 = int(hash_digest[0:21], 16) / norm_const
+    y0 = int(hash_digest[21:42], 16) / norm_const
+    z0 = int(hash_digest[42:64], 16) / norm_const
+    return x0, y0, z0
+
 def get_audio_feature_values(waveform, num_samples=128):
     """
-    Extract and quantize amplitude samples from the audio waveform.
-    Returns a numpy array of 8-bit quantized values.
+    Extract a given number of amplitude samples from the waveform, quantize them to 8-bit values,
+    and return as a numpy array.
     """
     indices = np.linspace(0, len(waveform)-1, num_samples, dtype=int)
     samples = waveform[indices]
     quantized = np.uint8(255 * ((samples - samples.min()) / (samples.max() - samples.min() + 1e-6)))
     return quantized
 
-def plot_chaotic_sequence(chaotic_sequence):
-    """Plot the raw chaotic sequence as a line graph."""
-    fig = go.Figure(data=go.Scatter(x=list(range(len(chaotic_sequence))), y=chaotic_sequence, mode='lines', name='Chaotic Sequence'))
-    fig.update_layout(title="Raw Chaotic Sequence", xaxis_title="Index", yaxis_title="Value")
-    return fig
-
-def plot_quantized_chaotic_sequence(chaotic_sequence):
-    """Plot the quantized chaotic sequence (8-bit values)."""
-    chaotic_array = np.array(chaotic_sequence)
-    quantized = np.uint8(255 * chaotic_array)
-    fig = go.Figure(data=go.Scatter(x=list(range(len(quantized))), y=quantized, mode='lines+markers', name='Quantized Chaotic Sequence'))
-    fig.update_layout(title="Quantized Chaotic Sequence", xaxis_title="Index", yaxis_title="Value (0-255)")
-    return fig
-
-def plot_audio_features(audio_features):
-    """Plot the quantized audio feature values."""
-    fig = go.Figure(data=go.Scatter(x=list(range(len(audio_features))), y=audio_features, mode='lines+markers', name='Audio Features'))
-    fig.update_layout(title="Audio Features (Quantized)", xaxis_title="Index", yaxis_title="Value (0-255)")
-    return fig
-
-def plot_combined_features(quantized_chaotic, audio_features):
-    """Display quantized chaotic sequence and audio features side by side."""
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("Quantized Chaotic Sequence", "Audio Features"))
-    fig.add_trace(go.Scatter(x=list(range(len(quantized_chaotic))), y=quantized_chaotic, mode='lines+markers', name='Quantized Chaotic'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=list(range(len(audio_features))), y=audio_features, mode='lines+markers', name='Audio Features'), row=1, col=2)
-    fig.update_layout(title="Combined Features Comparison")
-    return fig
-
-# ------------------ Key Generation Functions ------------------
-def derive_initial_conditions(passphrase):
-    """
-    Derive initial conditions for the chaotic system from the passphrase.
-    Hash the passphrase with SHA-256 and split the hash into three parts for x0, y0, and z0.
-    """
-    hash_digest = hashlib.sha256(passphrase.encode()).hexdigest()  # 64 hex characters
-    x0 = int(hash_digest[0:21], 16) / float(0xFFFFFFFFFFFFFFFFFFFFF)
-    y0 = int(hash_digest[21:42], 16) / float(0xFFFFFFFFFFFFFFFFFFFFF)
-    z0 = int(hash_digest[42:64], 16) / float(0xFFFFFFFFFFFFFFFFFFFFF)
-    return x0, y0, z0
-
 def sample_audio_features(waveform, num_samples=128):
     """
-    Extract a set number of amplitude samples from the audio waveform,
-    quantize them to 8 bits, and return as a byte string.
+    Extract and quantize audio features from the waveform, then return them as a byte string.
     """
-    indices = np.linspace(0, len(waveform)-1, num_samples, dtype=int)
-    samples = waveform[indices]
-    quantized = np.uint8(255 * ((samples - samples.min()) / (samples.max()-samples.min() + 1e-6)))
+    quantized = get_audio_feature_values(waveform, num_samples)
     return quantized.tobytes()
 
 def generate_chaotic_key(passphrase, waveform, chaotic_params, num_chaotic_samples=128):
     """
-    Generate a cryptographic key using both a passphrase and audio features.
-    
-    Steps:
-      1. Derive initial conditions from the passphrase.
-      2. Generate a chaotic sequence using RK4 with these conditions.
-      3. Quantize the chaotic sequence to 8-bit values.
-      4. Extract audio features from the waveform.
-      5. Concatenate the two byte strings and hash them to produce a key.
+    Generate a cryptographic key by combining:
+      1. A chaotic sequence derived from the passphrase.
+      2. Audio features extracted from the encoded waveform.
+    The sequences are quantized to 8-bit values, concatenated, and hashed with SHA‑256.
+    Returns the hexadecimal key and the raw chaotic sequence.
     """
     x0, y0, z0 = derive_initial_conditions(passphrase)
     dt, a, b, c = chaotic_params
-    chaotic_sequence = generate_chaotic_sequence_rossler_rk4(num_chaotic_samples, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
+    chaotic_sequence = generate_chaotic_sequence(num_chaotic_samples, dt=dt, a=a, b=b, c=c,
+                                                 x0=x0, y0=y0, z0=z0)
     chaotic_array = np.array(chaotic_sequence)
     chaotic_quantized = np.uint8(255 * chaotic_array)
     chaotic_bytes = chaotic_quantized.tobytes()
-    audio_bytes = sample_audio_features(waveform, num_samples=num_chaotic_samples)
+    audio_bytes = sample_audio_features(waveform, num_chaotic_samples)
     combined = chaotic_bytes + audio_bytes
     key = hashlib.sha256(combined).hexdigest()
     return key, chaotic_sequence
 
-# ------------------ Streamlit Interface ------------------
+# ------------------------------------------------------------------
+# Section 8: Streamlit Interface
+# ------------------------------------------------------------------
 def main():
     st.set_page_config(page_title="oscilLOCK", layout="wide")
     
-    # Sidebar for inputs and controls
+    # Sidebar: Input parameters and controls
     st.sidebar.title("CONTROL PANEL")
     with st.sidebar.form(key="input_form"):
         user_text = st.text_input("Enter text to encrypt:", "Hello, oscilLOCK!", max_chars=500)
@@ -281,42 +324,50 @@ def main():
             a = st.slider("a", 0.1, 1.0, 0.2, step=0.1)
             b = st.slider("b", 0.1, 1.0, 0.2, step=0.1)
             c = st.slider("c", 1.0, 10.0, 5.7, step=0.1)
-            # Initial conditions (x0, y0, z0) are now derived solely from the passphrase.
-        
+            # Initial conditions are derived solely from the passphrase.
         submit_button = st.form_submit_button(label="Enter")
     
     if submit_button and user_text:
         with st.spinner("Processing..."):
-            # Module 1: Data Preprocessing
+            # Data Preprocessing
             binary_output = text_to_binary(user_text)
             recovered_text = binary_to_text(binary_output)
             sample_rate = 44100
             
-            # Module 2: Generate Encoded Audio Waveform (Plain Mapping)
-            waveform_encoded, _ = grouped_binary_to_waveform_plain(
-                binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
-                base_freq=base_freq, freq_range=freq_range
+            # Generate plain (encoded) waveform
+            waveform_encoded, _ = grouped_binary_to_waveform(
+                binary_output,
+                sample_rate=sample_rate,
+                tone_duration=tone_duration,
+                gap_duration=gap_duration,
+                base_freq=base_freq,
+                freq_range=freq_range
             )
             
-            # Derive initial conditions from passphrase (for chaotic integration)
+            # Derive initial conditions from passphrase
             derived_x0, derived_y0, derived_z0 = derive_initial_conditions(passphrase)
             
-            # Module 3/4: Generate Encrypted Audio Waveform with Chaotic Modulation
+            # Generate chaotic (encrypted) waveform
             waveform_encrypted, _ = grouped_binary_to_waveform_chaotic(
-                binary_output, sample_rate=sample_rate, tone_duration=tone_duration, gap_duration=gap_duration,
-                base_freq=base_freq, freq_range=freq_range, chaos_mod_range=chaos_mod_range,
-                dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0
+                binary_output,
+                sample_rate=sample_rate,
+                tone_duration=tone_duration,
+                gap_duration=gap_duration,
+                base_freq=base_freq,
+                freq_range=freq_range,
+                chaos_mod_range=chaos_mod_range,
+                dt=dt, a=a, b=b, c=c,
+                x0=derived_x0, y0=derived_y0, z0=derived_z0
             )
             
-            # Key Generation: Use chaotic_params (dt, a, b, c) and user-selected num_chaotic_samples
+            # Key Generation
             chaotic_params = (dt, a, b, c)
-            derived_key, chaotic_sequence = generate_chaotic_key(passphrase, waveform_encoded, chaotic_params, num_chaotic_samples)
-            
-            # Extract audio features from the encoded waveform for key visualization
+            derived_key, chaotic_sequence = generate_chaotic_key(
+                passphrase, waveform_encoded, chaotic_params, num_chaotic_samples
+            )
             audio_features = get_audio_feature_values(waveform_encoded, num_samples=num_chaotic_samples)
             
-            # Prepare encrypted audio bytes for download (default to WAV; format chosen in Storage tab)
-        # Create tabs for the pipeline (5 tabs)
+        # Layout with Tabs
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "Preprocessing & Encoding", 
             "Encryption Module", 
@@ -332,17 +383,17 @@ def main():
             st.markdown(f"**Recovered Text:** {recovered_text}")
             st.markdown("**Encoded Audio:**")
             audio_encoded = convert_waveform_to_audio_bytes(waveform_encoded, sample_rate, file_format="WAV")
-            st.audio(audio_encoded, format='audio/wav', start_time=0)
+            st.audio(audio_encoded, format="audio/wav", start_time=0)
         
         with tab2:
             st.header("Encryption Module")
             st.markdown("**Encrypted Audio:**")
             encrypted_audio_bytes = convert_waveform_to_audio_bytes(waveform_encrypted, sample_rate, file_format="WAV")
-            st.audio(encrypted_audio_bytes, format='audio/wav', start_time=0)
+            st.audio(encrypted_audio_bytes, format="audio/wav", start_time=0)
         
         with tab3:
             st.header("Comparison")
-            zoom_range = (0, 0.005)  # Zoom in on first 5 ms for time-domain plots
+            zoom_range = (0, 0.005)
             st.subheader("Difference Waveform (Encrypted - Encoded)")
             fig_diff = create_difference_figure(waveform_encoded, waveform_encrypted, sample_rate, zoom_range=zoom_range)
             st.plotly_chart(fig_diff, use_container_width=True)
@@ -352,7 +403,9 @@ def main():
             st.plotly_chart(fig_fft, use_container_width=True)
             
             st.subheader("Chaotic Dynamics Visualization")
-            fig_phase = create_chaotic_phase_plot(binary_output, dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0)
+            fig_phase = create_chaotic_phase_plot(
+                binary_output, dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0
+            )
             st.plotly_chart(fig_phase, use_container_width=True)
         
         with tab4:
@@ -366,7 +419,9 @@ def main():
             st.plotly_chart(fig_chaotic_quant, use_container_width=True)
             fig_audio_features = plot_audio_features(audio_features)
             st.plotly_chart(fig_audio_features, use_container_width=True)
-            fig_combined = plot_combined_features(np.uint8(255 * np.array(chaotic_sequence)), audio_features)
+            fig_combined = plot_combined_features(
+                np.uint8(255 * np.array(chaotic_sequence)), audio_features
+            )
             st.plotly_chart(fig_combined, use_container_width=True)
             st.markdown("The key is generated by concatenating the quantized chaotic sequence (derived from your passphrase) with audio features extracted from the encoded waveform, then hashing the result with SHA‑256.")
         
@@ -383,7 +438,6 @@ def main():
             else:
                 mime_type = "audio/wav"
             download_audio = convert_waveform_to_audio_bytes(waveform_encrypted, sample_rate, file_format=file_format.upper())
-            # Use a fixed name "encrypted_audio" for consistency here if desired, or derive a unique one.
             st.download_button(label=f"Download Encrypted Audio ({file_format.upper()})",
                                data=download_audio,
                                file_name=f"encrypted_audio.{file_format.lower()}",
