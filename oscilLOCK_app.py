@@ -35,6 +35,20 @@ def pad_binary_str(binary_str):
     return binary_clean
 
 # ------------------------------------------------------------------
+# Helper Function: Downsample Data
+# ------------------------------------------------------------------
+def downsample_data(data, max_points=1000):
+    """
+    Downsample the 1D numpy array 'data' to at most 'max_points' data points.
+    """
+    data = np.array(data)
+    n_points = len(data)
+    if n_points <= max_points:
+        return data
+    factor = int(np.ceil(n_points / max_points))
+    return data[::factor]
+
+# ------------------------------------------------------------------
 # Section 2: Audio Waveform Generation
 # ------------------------------------------------------------------
 def grouped_binary_to_waveform(binary_str, sample_rate=44100, tone_duration=0.2,
@@ -155,42 +169,42 @@ def convert_waveform_to_audio_bytes(waveform, sample_rate, file_format="WAV"):
 # ------------------------------------------------------------------
 # Section 6: Visualization Functions (Plotly)
 # ------------------------------------------------------------------
-def create_waveform_figure(waveform, sample_rate, title="Waveform", zoom_range=None):
+def create_waveform_figure(waveform, sample_rate, title="Waveform", zoom_range=None, max_points=1000):
     """
-    Create a Plotly line chart of the waveform versus time.
+    Create a Plotly line chart of the waveform versus time using downsampled data.
     """
     time_vector = np.linspace(0, len(waveform) / sample_rate, len(waveform), endpoint=False)
-    fig = go.Figure(data=go.Scatter(x=time_vector, y=waveform, mode="lines", name="Waveform"))
+    # Downsample both the time vector and waveform for plotting
+    time_ds = downsample_data(time_vector, max_points)
+    waveform_ds = downsample_data(waveform, max_points)
+    
+    fig = go.Figure(data=go.Scatter(x=time_ds, y=waveform_ds, mode="lines", name="Waveform"))
     fig.update_layout(title=title, xaxis_title="Time (s)", yaxis_title="Amplitude", hovermode="x")
     if zoom_range:
         fig.update_xaxes(range=[zoom_range[0], zoom_range[1]])
     return fig
 
-def create_fft_figure(waveform_plain, waveform_chaotic, sample_rate):
+def create_fft_figure(waveform_plain, waveform_chaotic, sample_rate, max_points=1000):
     """
     Create a Plotly figure comparing the FFTs of the plain (encoded) and chaotic (encrypted) waveforms.
+    This function downsamples the FFT results if necessary.
     """
     N = len(waveform_plain)
     fft_plain = np.abs(np.fft.rfft(waveform_plain))
     fft_chaotic = np.abs(np.fft.rfft(waveform_chaotic))
     freqs = np.fft.rfftfreq(N, d=1/sample_rate)
+    
+    # Downsample FFT data if there are too many points
+    freqs_ds = downsample_data(freqs, max_points)
+    fft_plain_ds = downsample_data(fft_plain, max_points)
+    fft_chaotic_ds = downsample_data(fft_chaotic, max_points)
+    
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=freqs, y=fft_plain, mode="lines", name="Encoded Audio FFT"))
-    fig.add_trace(go.Scatter(x=freqs, y=fft_chaotic, mode="lines", name="Encrypted Audio FFT"))
+    fig.add_trace(go.Scatter(x=freqs_ds, y=fft_plain_ds, mode="lines", name="Encoded Audio FFT"))
+    fig.add_trace(go.Scatter(x=freqs_ds, y=fft_chaotic_ds, mode="lines", name="Encrypted Audio FFT"))
     fig.update_layout(title="FFT Comparison", xaxis_title="Frequency (Hz)", yaxis_title="Magnitude")
     fig.update_xaxes(range=[0, 1500])
     return fig
-
-# New Visualization Functions: Entropy and Correlation Coefficient
-
-def compute_shannon_entropy(signal, bins=256):
-    """
-    Compute the Shannon entropy of the given signal.
-    """
-    histogram, _ = np.histogram(signal, bins=bins, density=True)
-    histogram = histogram[histogram > 0]
-    entropy = -np.sum(histogram * np.log2(histogram))
-    return entropy
 
 def plot_entropy_comparison(waveform_plain, waveform_chaotic, bins=256):
     """
@@ -204,21 +218,84 @@ def plot_entropy_comparison(waveform_plain, waveform_chaotic, bins=256):
                       yaxis_title="Shannon Entropy (bits)")
     return fig
 
-def plot_correlation_coefficient(waveform_plain, waveform_chaotic):
+def compute_shannon_entropy(signal, bins=256):
     """
-    Create a scatter plot of encoded vs. encrypted audio amplitudes.
-    The title displays the Pearson correlation coefficient between the signals.
+    Compute the Shannon entropy of the given signal.
     """
+    histogram, _ = np.histogram(signal, bins=bins, density=True)
+    histogram = histogram[histogram > 0]
+    entropy = -np.sum(histogram * np.log2(histogram))
+    return entropy
+
+def plot_correlation_coefficient(waveform_plain, waveform_chaotic, max_points=1000):
+    """
+    Create a scatter plot of encoded vs. encrypted audio amplitudes using downsampled data.
+    The title displays the Pearson correlation coefficient between the full signals.
+    """
+    # Calculate correlation coefficient on full signals
     corr = np.corrcoef(waveform_plain, waveform_chaotic)[0, 1]
+    # Downsample data for plotting
+    wp_ds = downsample_data(waveform_plain, max_points)
+    we_ds = downsample_data(waveform_chaotic, max_points)
     fig = go.Figure(data=go.Scatter(
-        x=waveform_plain, y=waveform_chaotic, mode="markers",
-        marker=dict(size=4), name="Data Points"
+        x=wp_ds, y=we_ds, mode="markers", marker=dict(size=4), name="Data Points"
     ))
     fig.update_layout(
         title=f"Scatter Plot (Correlation: {corr:.2f})",
         xaxis_title="Encoded Audio Amplitude",
         yaxis_title="Encrypted Audio Amplitude"
     )
+    return fig
+
+def create_chaotic_phase_plot(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0, max_points=1000):
+    """
+    Generate a phase plot from the chaotic sequence: x[i+1] versus x[i],
+    downsampled for visualization.
+    """
+    binary_clean = binary_str.replace(" ", "")
+    n_bytes = len(binary_clean) // 8
+    chaotic_sequence = generate_chaotic_sequence(n_bytes, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
+    x_vals = np.array(chaotic_sequence[:-1])
+    y_vals = np.array(chaotic_sequence[1:])
+    
+    x_ds = downsample_data(x_vals, max_points)
+    y_ds = downsample_data(y_vals, max_points)
+    
+    fig = go.Figure(data=go.Scatter(x=x_ds, y=y_ds, mode="markers",
+                                    marker=dict(color="red", size=8)))
+    fig.update_layout(title="Chaotic Phase Plot", xaxis_title="x[i]", yaxis_title="x[i+1]")
+    return fig
+
+def plot_chaotic_sequence(chaotic_sequence, max_points=1000):
+    """
+    Plot the raw chaotic sequence, using downsampling.
+    """
+    seq_ds = downsample_data(chaotic_sequence, max_points)
+    fig = go.Figure(data=go.Scatter(x=list(range(len(seq_ds))), 
+                                    y=seq_ds, mode="lines", name="Chaotic Sequence"))
+    fig.update_layout(title="Raw Chaotic Sequence", xaxis_title="Index", yaxis_title="Value")
+    return fig
+
+def plot_quantized_chaotic_sequence(chaotic_sequence, max_points=1000):
+    """
+    Plot the quantized version of the chaotic sequence (8-bit values).
+    """
+    chaotic_array = np.array(chaotic_sequence)
+    quantized = np.uint8(255 * chaotic_array)
+    quantized_ds = downsample_data(quantized, max_points)
+    fig = go.Figure(data=go.Scatter(x=list(range(len(quantized_ds))), y=quantized_ds,
+                                    mode="lines+markers", name="Quantized Chaotic Sequence"))
+    fig.update_layout(title="Quantized Chaotic Sequence", xaxis_title="Index", yaxis_title="Value (0-255)")
+    return fig
+
+def plot_audio_features(audio_features, max_points=1000):
+    """
+    Plot the quantized audio feature values using downsampling.
+    """
+    audio_features_ds = downsample_data(audio_features, max_points)
+    fig = go.Figure(data=go.Scatter(x=list(range(len(audio_features_ds))), y=audio_features_ds,
+                                    mode="lines+markers", name="Audio Features"))
+    fig.update_layout(title="Audio Features (Quantized)", xaxis_title="Index", yaxis_title="Value (0-255)")
     return fig
 
 # ------------------------------------------------------------------
@@ -369,7 +446,6 @@ def main():
         
         with tab3:
             st.header("Comparison")
-            # Removed the difference waveform plot as requested.
             st.subheader("Entropy Comparison")
             fig_entropy = plot_entropy_comparison(waveform_encoded, waveform_encrypted)
             st.plotly_chart(fig_entropy, use_container_width=True)
@@ -399,7 +475,6 @@ def main():
             st.plotly_chart(fig_chaotic_quant, use_container_width=True)
             fig_audio_features = plot_audio_features(audio_features)
             st.plotly_chart(fig_audio_features, use_container_width=True)
-            # Removed the combined feature comparison plot as requested.
             st.markdown("The key is generated by concatenating the quantized chaotic sequence (derived from your passphrase) with audio features extracted from the encoded waveform, then hashing the result with SHA‑256.")
         
         with tab5:
