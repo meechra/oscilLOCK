@@ -167,6 +167,34 @@ def create_chaotic_phase_plot(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, 
     fig.update_layout(title="Chaotic Phase Plot", xaxis_title="x[i]", yaxis_title="x[i+1]")
     return fig
 
+# --- New Functions for Entropy and Correlation Analysis ---
+def calculate_entropy(signal):
+    """Calculate the Shannon entropy of a signal."""
+    histogram, _ = np.histogram(signal, bins=256, density=True)
+    histogram = histogram[histogram > 0]
+    entropy = -np.sum(histogram * np.log2(histogram))
+    return entropy
+
+def plot_entropy(signal_plain, signal_chaotic):
+    entropy_plain = calculate_entropy(signal_plain)
+    entropy_chaotic = calculate_entropy(signal_chaotic)
+    fig = go.Figure(data=[go.Bar(
+        x=["Encoded Signal", "Encrypted Signal"],
+        y=[entropy_plain, entropy_chaotic],
+        marker_color=['blue', 'orange']
+    )])
+    fig.update_layout(title="Entropy Comparison", yaxis_title="Entropy (bits)")
+    return fig
+
+def plot_correlation(signal_plain, signal_chaotic):
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("Plain Signal", "Encrypted Signal"))
+    fig.add_trace(go.Scatter(y=signal_plain[:-1], x=signal_plain[1:], mode='markers', marker=dict(size=3)), row=1, col=1)
+    fig.add_trace(go.Scatter(y=signal_chaotic[:-1], x=signal_chaotic[1:], mode='markers', marker=dict(size=3)), row=1, col=2)
+    fig.update_xaxes(title_text="Signal[i+1]")
+    fig.update_yaxes(title_text="Signal[i]")
+    fig.update_layout(title="Signal Correlation Scatter Plots")
+    return fig
+
 def convert_waveform_to_audio_bytes(waveform, sample_rate, file_format="WAV"):
     """Convert a numpy waveform to audio bytes for playback in the specified format."""
     buf = io.BytesIO()
@@ -342,16 +370,25 @@ def main():
         
         with tab3:
             st.header("Comparison")
-            zoom_range = (0, 0.005)  # Zoom in on first 5 ms for time-domain plots
-            st.subheader("Difference Waveform (Encrypted - Encoded)")
-            fig_diff = create_difference_figure(waveform_encoded, waveform_encrypted, sample_rate, zoom_range=zoom_range)
-            st.plotly_chart(fig_diff, use_container_width=True)
+            
+            st.subheader("Entropy Analysis")
+            fig_entropy = plot_entropy(waveform_encoded, waveform_encrypted)
+            st.plotly_chart(fig_entropy, use_container_width=True)
+            
+            st.subheader("Correlation Analysis")
+            fig_corr = plot_correlation(waveform_encoded, waveform_encrypted)
+            st.plotly_chart(fig_corr, use_container_width=True)
             
             st.subheader("FFT Comparison")
             fig_fft = create_fft_figure(waveform_encoded, waveform_encrypted, sample_rate)
             st.plotly_chart(fig_fft, use_container_width=True)
             
-            st.subheader("Chaotic Dynamics Visualization")
+            st.subheader("Waveform Difference (Zoomed)")
+            zoom_range = (0, 0.005)
+            fig_diff = create_difference_figure(waveform_encoded, waveform_encrypted, sample_rate, zoom_range=zoom_range)
+            st.plotly_chart(fig_diff, use_container_width=True)
+            
+            st.subheader("Chaotic Phase Space Plot")
             fig_phase = create_chaotic_phase_plot(binary_output, dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0)
             st.plotly_chart(fig_phase, use_container_width=True)
         
@@ -383,7 +420,6 @@ def main():
             else:
                 mime_type = "audio/wav"
             download_audio = convert_waveform_to_audio_bytes(waveform_encrypted, sample_rate, file_format=file_format.upper())
-            # Use a fixed name "encrypted_audio" for consistency here if desired, or derive a unique one.
             st.download_button(label=f"Download Encrypted Audio ({file_format.upper()})",
                                data=download_audio,
                                file_name=f"encrypted_audio.{file_format.lower()}",
