@@ -95,11 +95,21 @@ def rk4_step(state, dt, a, b, c):
     k4 = rossler_derivatives(state + dt * k3, a, b, c)
     return state + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
 
-def generate_chaotic_sequence(n, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0):
+def generate_chaotic_sequence(n, dt=0.01, a=0.2, b=0.2, c=5.7,
+                              x0=0.1, y0=0.0, z0=0.0, burn_in=100):
     """
     Generate a normalized chaotic sequence using the Rossler attractor and RK4 integration.
+    
+    Steps:
+      1. Perform 'burn_in' RK4 steps (discard these) to allow transients to settle.
+      2. Collect 'n' further samples into the sequence.
+      3. Normalize the sequence to the range [0, 1].
     """
     state = np.array([x0, y0, z0], dtype=float)
+    # Burn-in phase
+    for _ in range(burn_in):
+        state = rk4_step(state, dt, a, b, c)
+    
     sequence = []
     for _ in range(n):
         state = rk4_step(state, dt, a, b, c)
@@ -114,7 +124,7 @@ def generate_chaotic_sequence(n, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z
 def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_duration=0.2,
                                        gap_duration=0.05, base_freq=300, freq_range=700,
                                        chaos_mod_range=100, dt=0.01, a=0.2, b=0.2,
-                                       c=5.7, x0=0.1, y0=0.0, z0=0.0):
+                                       c=5.7, x0=0.1, y0=0.0, z0=0.0, burn_in=100):
     """
     Map each 8-bit group from the binary string to a tone and modulate its frequency
     with a chaotic offset computed from the Rossler attractor.
@@ -123,7 +133,7 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
     binary_clean = pad_binary_str(binary_str)
     bytes_list = [binary_clean[i: i+8] for i in range(0, len(binary_clean), 8)]
     chaotic_sequence = generate_chaotic_sequence(len(bytes_list), dt=dt, a=a, b=b, c=c,
-                                                   x0=x0, y0=y0, z0=z0)
+                                                 x0=x0, y0=y0, z0=z0, burn_in=burn_in)
     
     waveform_segments = []
     for i, byte_str in enumerate(bytes_list):
@@ -247,14 +257,16 @@ def plot_correlation_coefficient(waveform_plain, waveform_chaotic, max_points=10
     )
     return fig
 
-def create_chaotic_phase_plot(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7, x0=0.1, y0=0.0, z0=0.0, max_points=1000):
+def create_chaotic_phase_plot(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7,
+                              x0=0.1, y0=0.0, z0=0.0, max_points=1000, burn_in=100):
     """
     Generate a phase plot from the chaotic sequence: x[i+1] versus x[i],
     downsampled for visualization.
     """
     binary_clean = binary_str.replace(" ", "")
     n_bytes = len(binary_clean) // 8
-    chaotic_sequence = generate_chaotic_sequence(n_bytes, dt=dt, a=a, b=b, c=c, x0=x0, y0=y0, z0=z0)
+    chaotic_sequence = generate_chaotic_sequence(n_bytes, dt=dt, a=a, b=b, c=c,
+                                                 x0=x0, y0=y0, z0=z0, burn_in=burn_in)
     x_vals = np.array(chaotic_sequence[:-1])
     y_vals = np.array(chaotic_sequence[1:])
     
@@ -341,7 +353,7 @@ def generate_chaotic_key(passphrase, waveform, chaotic_params, num_chaotic_sampl
     x0, y0, z0 = derive_initial_conditions(passphrase)
     dt, a, b, c = chaotic_params
     chaotic_sequence = generate_chaotic_sequence(num_chaotic_samples, dt=dt, a=a, b=b, c=c,
-                                                 x0=x0, y0=y0, z0=z0)
+                                                 x0=x0, y0=y0, z0=z0, burn_in=100)
     chaotic_array = np.array(chaotic_sequence)
     chaotic_quantized = np.uint8(255 * chaotic_array)
     chaotic_bytes = chaotic_quantized.tobytes()
@@ -410,7 +422,8 @@ def main():
                 freq_range=freq_range,
                 chaos_mod_range=chaos_mod_range,
                 dt=dt, a=a, b=b, c=c,
-                x0=derived_x0, y0=derived_y0, z0=derived_z0
+                x0=derived_x0, y0=derived_y0, z0=derived_z0,
+                burn_in=100
             )
             
             # Key Generation
@@ -460,7 +473,8 @@ def main():
             
             st.subheader("Chaotic Dynamics Visualization")
             fig_phase = create_chaotic_phase_plot(
-                binary_output, dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0
+                binary_output, dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0,
+                burn_in=100
             )
             st.plotly_chart(fig_phase, use_container_width=True)
         
