@@ -98,12 +98,12 @@ def rk4_step(state, dt, a, b, c):
 def generate_chaotic_sequence(n, dt=0.01, a=0.2, b=0.2, c=5.7,
                               x0=0.1, y0=0.0, z0=0.0, burn_in=100):
     """
-    Generate a normalized chaotic sequence using the Rossler attractor and RK4 integration.
+    Generate a normalized chaotic sequence (using the x coordinate) from the Rossler attractor.
     
     Steps:
-      1. Perform 'burn_in' RK4 steps to let transients settle (discard results).
-      2. Collect 'n' samples from the settled system.
-      3. Normalize the sequence to the range [0, 1].
+      1. Execute 'burn_in' RK4 steps to allow transients to settle.
+      2. Collect 'n' successive samples (using the x coordinate).
+      3. Normalize the sequence to [0, 1].
     """
     state = np.array([x0, y0, z0], dtype=float)
     # Burn-in phase
@@ -156,7 +156,7 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
 # ------------------------------------------------------------------
 def synthesize_and_store_audio(waveform, sample_rate=44100, filename_prefix="oscilLOCK_audio", file_format="WAV"):
     """
-    Write the provided waveform to an audio file. The file is saved using a timestamped filename.
+    Write the provided waveform to an audio file using a timestamped filename.
     Returns the full file path.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -170,7 +170,7 @@ def synthesize_and_store_audio(waveform, sample_rate=44100, filename_prefix="osc
 
 def convert_waveform_to_audio_bytes(waveform, sample_rate, file_format="WAV"):
     """
-    Convert the numpy waveform into audio bytes for playback or download.
+    Convert the waveform into audio bytes for playback or download.
     """
     buf = io.BytesIO()
     sf.write(buf, waveform, sample_rate, format=file_format)
@@ -181,10 +181,9 @@ def convert_waveform_to_audio_bytes(waveform, sample_rate, file_format="WAV"):
 # ------------------------------------------------------------------
 def create_waveform_figure(waveform, sample_rate, title="Waveform", zoom_range=None, max_points=1000):
     """
-    Create a Plotly line chart of the waveform versus time using downsampled data.
+    Create a downsampled Plotly line chart of the waveform versus time.
     """
     time_vector = np.linspace(0, len(waveform) / sample_rate, len(waveform), endpoint=False)
-    # Downsample both the time vector and waveform for plotting
     time_ds = downsample_data(time_vector, max_points)
     waveform_ds = downsample_data(waveform, max_points)
     
@@ -196,15 +195,14 @@ def create_waveform_figure(waveform, sample_rate, title="Waveform", zoom_range=N
 
 def create_fft_figure(waveform_plain, waveform_chaotic, sample_rate, max_points=1000):
     """
-    Create a Plotly figure comparing the FFTs of the plain (encoded) and chaotic (encrypted) waveforms.
-    This function downsamples the FFT results if necessary.
+    Create a Plotly figure comparing the FFTs of the plain and chaotic waveforms.
+    Downsample FFT data if necessary.
     """
     N = len(waveform_plain)
     fft_plain = np.abs(np.fft.rfft(waveform_plain))
     fft_chaotic = np.abs(np.fft.rfft(waveform_chaotic))
     freqs = np.fft.rfftfreq(N, d=1/sample_rate)
     
-    # Downsample FFT data if there are too many points
     freqs_ds = downsample_data(freqs, max_points)
     fft_plain_ds = downsample_data(fft_plain, max_points)
     fft_chaotic_ds = downsample_data(fft_chaotic, max_points)
@@ -224,13 +222,12 @@ def plot_entropy_comparison(waveform_plain, waveform_chaotic, bins=256):
     entropy_chaotic = compute_shannon_entropy(waveform_chaotic, bins)
     fig = go.Figure(data=[go.Bar(x=["Encoded Audio", "Encrypted Audio"],
                                  y=[entropy_plain, entropy_chaotic])])
-    fig.update_layout(title="Entropy Comparison", xaxis_title="Waveform",
-                      yaxis_title="Shannon Entropy (bits)")
+    fig.update_layout(title="Entropy Comparison", xaxis_title="Waveform", yaxis_title="Shannon Entropy (bits)")
     return fig
 
 def compute_shannon_entropy(signal, bins=256):
     """
-    Compute the Shannon entropy of the given signal.
+    Compute the Shannon entropy of the signal.
     """
     histogram, _ = np.histogram(signal, bins=bins, density=True)
     histogram = histogram[histogram > 0]
@@ -240,35 +237,24 @@ def compute_shannon_entropy(signal, bins=256):
 def plot_correlation_coefficient(waveform_plain, waveform_chaotic, max_points=1000):
     """
     Create a scatter plot of encoded vs. encrypted audio amplitudes using downsampled data.
-    The title displays the Pearson correlation coefficient between the full signals.
+    Displays the Pearson correlation coefficient.
     """
-    # Calculate correlation coefficient on full signals
     corr = np.corrcoef(waveform_plain, waveform_chaotic)[0, 1]
-    # Downsample data for plotting
     wp_ds = downsample_data(waveform_plain, max_points)
     we_ds = downsample_data(waveform_chaotic, max_points)
-    fig = go.Figure(data=go.Scatter(
-        x=wp_ds, y=we_ds, mode="markers", marker=dict(size=4), name="Data Points"
-    ))
-    fig.update_layout(
-        title=f"Scatter Plot (Correlation: {corr:.2f})",
-        xaxis_title="Encoded Audio Amplitude",
-        yaxis_title="Encrypted Audio Amplitude"
-    )
+    fig = go.Figure(data=go.Scatter(x=wp_ds, y=we_ds, mode="markers", marker=dict(size=4), name="Data Points"))
+    fig.update_layout(title=f"Scatter Plot (Correlation: {corr:.2f})", 
+                      xaxis_title="Encoded Audio Amplitude", yaxis_title="Encrypted Audio Amplitude")
     return fig
 
 def create_chaotic_phase_plot_3d(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7,
                                  x0=0.1, y0=0.0, z0=0.0, max_points=1000, burn_in=100):
     """
-    Generate a 3D phase plot from the chaotic sequence using the Rossler attractor.
-    The plot shows (x, y, z) points after a burn-in period.
+    Generate a 3D phase plot (x, y, z) from the chaotic trajectory after burn-in.
     """
     binary_clean = binary_str.replace(" ", "")
     n_bytes = len(binary_clean) // 8
-    # Generate a chaotic sequence for n_bytes; here we generate full 3D trajectories.
-    # Instead of sampling only x values, collect x, y, and z during integration.
     state = np.array([x0, y0, z0], dtype=float)
-    # Burn-in phase
     for _ in range(burn_in):
         state = rk4_step(state, dt, a, b, c)
     trajectory = []
@@ -276,8 +262,6 @@ def create_chaotic_phase_plot_3d(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7,
         state = rk4_step(state, dt, a, b, c)
         trajectory.append(state.copy())
     trajectory = np.array(trajectory)
-    
-    # Downsample the trajectory for plotting
     trajectory_ds = trajectory[::max(1, int(len(trajectory)/max_points))]
     
     fig = go.Figure(data=[go.Scatter3d(
@@ -292,19 +276,45 @@ def create_chaotic_phase_plot_3d(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7,
     ))
     return fig
 
+def create_chaotic_phase_plots_2d(binary_str, dt=0.01, a=0.2, b=0.2, c=5.7,
+                                  x0=0.1, y0=0.0, z0=0.0, max_points=1000, burn_in=100):
+    """
+    Generate 2D phase plots for the chaotic trajectory (XY, YZ, ZX), arranged in a row.
+    """
+    binary_clean = binary_str.replace(" ", "")
+    n_bytes = len(binary_clean) // 8
+    state = np.array([x0, y0, z0], dtype=float)
+    for _ in range(burn_in):
+        state = rk4_step(state, dt, a, b, c)
+    trajectory = []
+    for _ in range(n_bytes):
+        state = rk4_step(state, dt, a, b, c)
+        trajectory.append(state.copy())
+    trajectory = np.array(trajectory)
+    trajectory_ds = trajectory[::max(1, int(len(trajectory)/max_points))]
+    
+    fig = make_subplots(rows=1, cols=3, subplot_titles=["XY Phase Plot", "YZ Phase Plot", "ZX Phase Plot"])
+    fig.add_trace(go.Scatter(x=trajectory_ds[:,0], y=trajectory_ds[:,1], mode="markers",
+                             marker=dict(color="blue", size=3)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=trajectory_ds[:,1], y=trajectory_ds[:,2], mode="markers",
+                             marker=dict(color="green", size=3)), row=1, col=2)
+    fig.add_trace(go.Scatter(x=trajectory_ds[:,2], y=trajectory_ds[:,0], mode="markers",
+                             marker=dict(color="red", size=3)), row=1, col=3)
+    fig.update_layout(title="2D Chaotic Phase Plots", showlegend=False)
+    return fig
+
 def plot_chaotic_sequence(chaotic_sequence, max_points=1000):
     """
-    Plot the raw chaotic sequence, using downsampling.
+    Plot the raw chaotic sequence using downsampling.
     """
     seq_ds = downsample_data(chaotic_sequence, max_points)
-    fig = go.Figure(data=go.Scatter(x=list(range(len(seq_ds))), 
-                                    y=seq_ds, mode="lines", name="Chaotic Sequence"))
+    fig = go.Figure(data=go.Scatter(x=list(range(len(seq_ds))), y=seq_ds, mode="lines", name="Chaotic Sequence"))
     fig.update_layout(title="Raw Chaotic Sequence", xaxis_title="Index", yaxis_title="Value")
     return fig
 
 def plot_quantized_chaotic_sequence(chaotic_sequence, max_points=1000):
     """
-    Plot the quantized version of the chaotic sequence (8-bit values).
+    Plot the quantized chaotic sequence (8-bit values) using downsampling.
     """
     chaotic_array = np.array(chaotic_sequence)
     quantized = np.uint8(255 * chaotic_array)
@@ -316,7 +326,7 @@ def plot_quantized_chaotic_sequence(chaotic_sequence, max_points=1000):
 
 def plot_audio_features(audio_features, max_points=1000):
     """
-    Plot the quantized audio feature values using downsampling.
+    Plot quantized audio feature values using downsampling.
     """
     audio_features_ds = downsample_data(audio_features, max_points)
     fig = go.Figure(data=go.Scatter(x=list(range(len(audio_features_ds))), y=audio_features_ds,
@@ -329,8 +339,8 @@ def plot_audio_features(audio_features, max_points=1000):
 # ------------------------------------------------------------------
 def derive_initial_conditions(passphrase):
     """
-    Derive initial conditions for the chaotic system from the SHA‑256 hash of the passphrase.
-    The hash is split into three parts for x0, y0, and z0 using a normalization constant.
+    Derive initial conditions from the SHA‑256 hash of the passphrase.
+    Split into three parts for x0, y0, and z0.
     """
     hash_digest = hashlib.sha256(passphrase.encode()).hexdigest()  # 64 hex characters
     norm_const = float(0xFFFFFFFFFFFFFFFFFFFFF)
@@ -341,8 +351,8 @@ def derive_initial_conditions(passphrase):
 
 def get_audio_feature_values(waveform, num_samples=128):
     """
-    Extract a given number of amplitude samples from the waveform, quantize them to 8-bit values,
-    and return as a numpy array.
+    Extract a number of amplitude samples from the waveform,
+    quantize to 8-bit values, and return as a numpy array.
     """
     indices = np.linspace(0, len(waveform)-1, num_samples, dtype=int)
     samples = waveform[indices]
@@ -351,7 +361,8 @@ def get_audio_feature_values(waveform, num_samples=128):
 
 def sample_audio_features(waveform, num_samples=128):
     """
-    Extract and quantize audio features from the waveform, then return them as a byte string.
+    Extract and quantize audio features from the waveform,
+    returning them as a byte string.
     """
     quantized = get_audio_feature_values(waveform, num_samples)
     return quantized.tobytes()
@@ -360,8 +371,8 @@ def generate_chaotic_key(passphrase, waveform, chaotic_params, num_chaotic_sampl
     """
     Generate a cryptographic key by combining:
       1. A chaotic sequence derived from the passphrase.
-      2. Audio features extracted from the encoded waveform.
-    The sequences are quantized to 8-bit values, concatenated, and hashed with SHA‑256.
+      2. Audio features from the encoded waveform.
+    Concatenate the quantized values and hash with SHA‑256.
     Returns the hexadecimal key and the raw chaotic sequence.
     """
     x0, y0, z0 = derive_initial_conditions(passphrase)
@@ -404,7 +415,7 @@ def main():
             b = st.slider("b", 0.1, 1.0, 0.2, step=0.1)
             c = st.slider("c", 1.0, 10.0, 5.7, step=0.1)
             burn_in = st.slider("Burn-in Steps", 0, 1000, 100, step=50)
-            # Initial conditions are derived solely from the passphrase.
+            # Initial conditions derived solely from the passphrase.
         submit_button = st.form_submit_button(label="Enter")
     
     if submit_button and user_text:
@@ -487,11 +498,20 @@ def main():
             st.plotly_chart(fig_fft, use_container_width=True)
             
             st.subheader("3D Chaotic Phase Visualization")
-            fig_phase = create_chaotic_phase_plot_3d(
-                binary_output, dt=dt, a=a, b=b, c=c, x0=derived_x0, y0=derived_y0, z0=derived_z0,
+            fig_phase_3d = create_chaotic_phase_plot_3d(
+                binary_output, dt=dt, a=a, b=b, c=c,
+                x0=derived_x0, y0=derived_y0, z0=derived_z0,
                 burn_in=burn_in
             )
-            st.plotly_chart(fig_phase, use_container_width=True)
+            st.plotly_chart(fig_phase_3d, use_container_width=True)
+            
+            st.subheader("2D Chaotic Phase Plots (XY, YZ, ZX)")
+            fig_phase_2d = create_chaotic_phase_plots_2d(
+                binary_output, dt=dt, a=a, b=b, c=c,
+                x0=derived_x0, y0=derived_y0, z0=derived_z0,
+                burn_in=burn_in
+            )
+            st.plotly_chart(fig_phase_2d, use_container_width=True)
         
         with tab4:
             st.header("Key Generation")
