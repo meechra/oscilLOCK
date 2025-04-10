@@ -64,7 +64,6 @@ def grouped_binary_to_waveform(binary_str, sample_rate=44100, tone_duration=TONE
     """Map each 8-bit group from the binary string to a tone and add gaps."""
     binary_clean = pad_binary_str(binary_str)
     bytes_list = [binary_clean[i: i+8] for i in range(0, len(binary_clean), 8)]
-    
     waveform_segments = []
     for byte_str in bytes_list:
         byte_val = int(byte_str, 2)
@@ -74,7 +73,6 @@ def grouped_binary_to_waveform(binary_str, sample_rate=44100, tone_duration=TONE
         gap = np.zeros(int(sample_rate * gap_duration), dtype=np.float32)
         waveform_segments.append(tone)
         waveform_segments.append(gap)
-        
     waveform = np.concatenate(waveform_segments)
     time_vector = np.linspace(0, len(waveform) / sample_rate, len(waveform), endpoint=False)
     return waveform, time_vector
@@ -98,7 +96,7 @@ def rk4_step(state, dt, a, b, c):
 def generate_chaotic_sequence(n, dt=DT, a=A_PARAM, b=B_PARAM, c=C_PARAM,
                               x0=0.1, y0=0.0, z0=0.0, burn_in=BURN_IN):
     """
-    Generate a normalized chaotic sequence from the Rossler attractor using the x coordinate.
+    Generate a normalized chaotic sequence (x coordinate) from the Rossler attractor.
     """
     state = np.array([x0, y0, z0], dtype=float)
     # Burn-in phase
@@ -120,13 +118,12 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
                                        chaos_mod_range=CHAOS_MOD_RANGE, dt=DT, a=A_PARAM, b=B_PARAM,
                                        c=C_PARAM, x0=0.1, y0=0.0, z0=0.0, burn_in=BURN_IN):
     """
-    Generate a chaotic-modulated waveform: map each 8-bit group to a tone then modulate its frequency.
+    Map each 8-bit group to a tone and modulate its frequency using a chaotic offset.
     """
     binary_clean = pad_binary_str(binary_str)
     bytes_list = [binary_clean[i: i+8] for i in range(0, len(binary_clean), 8)]
     chaotic_sequence = generate_chaotic_sequence(len(bytes_list), dt=dt, a=a, b=b, c=c,
                                                  x0=x0, y0=y0, z0=z0, burn_in=burn_in)
-    
     waveform_segments = []
     for i, byte_str in enumerate(bytes_list):
         byte_val = int(byte_str, 2)
@@ -135,7 +132,7 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
         modulated_freq = freq + chaotic_offset
         t_tone = np.linspace(0, tone_duration, int(sample_rate * tone_duration), endpoint=False)
         tone = np.sin(2 * np.pi * modulated_freq * t_tone)
-        gap = np.zeros(int(sample_rate * gap_duration), dtype=np.float32)
+        gap = np.zeros(int(sample_rate * GAP_DURATION), dtype=np.float32)
         waveform_segments.append(tone)
         waveform_segments.append(gap)
     waveform = np.concatenate(waveform_segments)
@@ -146,7 +143,7 @@ def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_durat
 # Section 5: Audio Synthesis & Storage
 # ------------------------------------------------------------------
 def synthesize_and_store_audio(waveform, sample_rate=44100, filename_prefix="oscilLOCK_audio", file_format="WAV"):
-    """Write the waveform to an audio file with a timestamped filename."""
+    """Save the waveform to an audio file using a timestamped filename."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{filename_prefix}_{timestamp}.{file_format.lower()}"
     storage_dir = "audio_storage"
@@ -157,7 +154,7 @@ def synthesize_and_store_audio(waveform, sample_rate=44100, filename_prefix="osc
     return full_path
 
 def convert_waveform_to_audio_bytes(waveform, sample_rate, file_format="WAV"):
-    """Convert the waveform into audio bytes for playback or download."""
+    """Convert the waveform into audio bytes for playback/download."""
     buf = io.BytesIO()
     sf.write(buf, waveform, sample_rate, format=file_format)
     return buf.getvalue()
@@ -204,7 +201,7 @@ def plot_correlation_coefficient(waveform_plain, waveform_chaotic, max_points=10
 
 def create_chaotic_phase_plot_3d(binary_str, dt=DT, a=A_PARAM, b=B_PARAM, c=C_PARAM,
                                  x0=0.1, y0=0.0, z0=0.0, max_points=1000, burn_in=BURN_IN):
-    """Generate a 3D phase plot (x, y, z) from the chaotic trajectory after burn-in."""
+    """Generate a 3D phase plot (x,y,z) from the chaotic trajectory after burn-in."""
     binary_clean = binary_str.replace(" ", "")
     n_bytes = len(binary_clean) // 8
     state = np.array([x0, y0, z0], dtype=float)
@@ -265,7 +262,7 @@ def plot_quantized_chaotic_sequence(chaotic_sequence, max_points=1000):
     return fig
 
 def plot_audio_features(audio_features, max_points=1000):
-    """Plot quantized audio features using downsampling."""
+    """Plot quantized audio feature values using downsampling."""
     audio_features_ds = downsample_data(audio_features, max_points)
     fig = go.Figure(data=go.Scatter(x=list(range(len(audio_features_ds))), y=audio_features_ds,
                                     mode="lines+markers", name="Audio Features"))
@@ -285,7 +282,7 @@ def derive_initial_conditions(passphrase):
     return x0, y0, z0
 
 def get_audio_feature_values(waveform, num_samples=NUM_CHAOTIC_SAMPLES):
-    """Extract amplitude samples from the waveform and quantize them to 8-bit values."""
+    """Extract amplitude samples from the waveform and quantize them to 8-bit."""
     indices = np.linspace(0, len(waveform)-1, num_samples, dtype=int)
     samples = waveform[indices]
     quantized = np.uint8(255 * ((samples - samples.min()) / (samples.max() - samples.min() + 1e-6)))
@@ -299,8 +296,8 @@ def sample_audio_features(waveform, num_samples=NUM_CHAOTIC_SAMPLES):
 def generate_chaotic_key(passphrase, waveform, chaotic_params, num_chaotic_samples=NUM_CHAOTIC_SAMPLES):
     """
     Generate a cryptographic key by combining:
-      1. A chaotic sequence from the passphrase.
-      2. Audio features from the encoded waveform.
+      1. A chaotic sequence derived from the passphrase.
+      2. Audio features extracted from the encoded waveform.
     Returns the key (SHA‑256 hash) and the raw chaotic sequence.
     """
     x0, y0, z0 = derive_initial_conditions(passphrase)
@@ -316,25 +313,28 @@ def generate_chaotic_key(passphrase, waveform, chaotic_params, num_chaotic_sampl
     return key, chaotic_sequence
 
 # ------------------------------------------------------------------
-# Section 8: Streamlit UI with Hard-Coded Parameters
+# Section 8: Streamlit UI with Hard-Coded Parameters and Sidebar Form
 # ------------------------------------------------------------------
 def main():
     st.set_page_config(page_title="oscilLOCK", layout="wide")
-    st.title("oscilLOCK - Hard-Coded Parameter Encryption")
+    st.title("oscilLOCK - Multimodal Audio Based Encryptor")
     
-    # Sidebar for text and passphrase input
-    st.sidebar.title("CONTROL PANEL")
-    user_text = st.sidebar.text_area("Enter text to encrypt:", "Hello, oscilLOCK!")
-    passphrase = st.sidebar.text_input("Enter passphrase for key generation:", "DefaultPassphrase", type="password")
+    # Sidebar: Input form with an "Enter" button
+    with st.sidebar:
+        st.title("Enter Message")
+        with st.form(key="message_form"):
+            user_text = st.text_area("Enter text to encrypt:", "Hello, oscilLOCK!")
+            passphrase = st.text_input("Enter passphrase for key generation:", "DefaultPassphrase", type="password")
+            submit_button = st.form_submit_button("Enter")
     
-    if user_text:
+    if submit_button and user_text:
         sample_rate = 44100
         
         # Data Preprocessing
         binary_output = text_to_binary(user_text)
         recovered_text = binary_to_text(binary_output)
         
-        # Generate encoded waveform with fixed parameters
+        # Generate the encoded (plain) waveform
         waveform_encoded, _ = grouped_binary_to_waveform(
             binary_output,
             sample_rate=sample_rate,
@@ -347,7 +347,7 @@ def main():
         # Derive initial conditions from passphrase
         derived_x0, derived_y0, derived_z0 = derive_initial_conditions(passphrase)
         
-        # Generate encrypted (chaotic-modulated) waveform
+        # Generate the encrypted (chaotic-modulated) waveform
         waveform_encrypted, _ = grouped_binary_to_waveform_chaotic(
             binary_output,
             sample_rate=sample_rate,
@@ -361,14 +361,14 @@ def main():
             burn_in=BURN_IN
         )
         
-        # Generate key and get chaotic sequence for visualization
+        # Key Generation
         chaotic_params = (DT, A_PARAM, B_PARAM, C_PARAM)
         derived_key, chaotic_sequence = generate_chaotic_key(
             passphrase, waveform_encoded, chaotic_params, num_chaotic_samples=NUM_CHAOTIC_SAMPLES
         )
         audio_features = get_audio_feature_values(waveform_encoded)
         
-        # Create a multi-tab layout
+        # Layout with Tabs
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "Preprocessing & Encoding", 
             "Encryption Module", 
