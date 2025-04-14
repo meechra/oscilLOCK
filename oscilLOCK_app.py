@@ -8,6 +8,9 @@ import hashlib
 import os
 from datetime import datetime
 
+# Global Toggle for XOR Chaining Enhancement
+ENABLE_XOR_CHAINING = True
+
 # ------------------------------------------------------------------
 # Hard-Coded Parameters (from grid search and trial & error)
 # ------------------------------------------------------------------
@@ -24,6 +27,41 @@ DT = 0.005251616433272467   # seconds
 A_PARAM = 0.12477067210511437
 B_PARAM = 0.2852679643352883
 C_PARAM = 6.801715623942842
+
+# ------------------------------------------------------------------
+# Helper Functions for XOR Chaining
+# ------------------------------------------------------------------
+def xor_chain_bytes(plaintext_bytes, iv):
+    """
+    Applies XOR chaining to a list of 8-bit integers.
+    
+    For the first element, use the provided IV. Then, for each subsequent byte,
+    compute: chained_byte = plaintext_byte XOR previous_cipher_byte.
+    This operation is reversible if the same IV is used during decryption.
+    """
+    chained_bytes = []
+    prev = iv
+    for byte in plaintext_bytes:
+        chained_byte = byte ^ prev
+        chained_bytes.append(chained_byte)
+        prev = chained_byte
+    return chained_bytes
+
+def inverse_xor_chain(chained_bytes, iv):
+    """
+    Invert the XOR chaining to recover the original plaintext bytes.
+    
+    :param chained_bytes: List of XOR chained 8-bit integers.
+    :param iv: Initialization vector used during encryption.
+    :return: List of original plaintext bytes.
+    """
+    recovered_bytes = []
+    prev = iv
+    for chained_byte in chained_bytes:
+        original_byte = chained_byte ^ prev
+        recovered_bytes.append(original_byte)
+        prev = chained_byte
+    return recovered_bytes
 
 # ------------------------------------------------------------------
 # Section 1: Data Preprocessing
@@ -116,23 +154,36 @@ def generate_chaotic_sequence(n, dt=DT, a=A_PARAM, b=B_PARAM, c=C_PARAM,
 def grouped_binary_to_waveform_chaotic(binary_str, sample_rate=44100, tone_duration=TONE_DURATION,
                                        gap_duration=GAP_DURATION, base_freq=BASE_FREQ, freq_range=FREQ_RANGE,
                                        chaos_mod_range=CHAOS_MOD_RANGE, dt=DT, a=A_PARAM, b=B_PARAM,
-                                       c=C_PARAM, x0=0.1, y0=0.0, z0=0.0, burn_in=BURN_IN):
+                                       c=C_PARAM, x0=0.1, y0=0.0, z0=0.0, burn_in=BURN_IN, iv=None):
     """
     Map each 8-bit group to a tone and modulate its frequency using a chaotic offset.
+    If XOR chaining is enabled, the binary bytes are first processed with the XOR chain.
     """
     binary_clean = pad_binary_str(binary_str)
+    # Split into 8-bit groups and convert to integer values
     bytes_list = [binary_clean[i: i+8] for i in range(0, len(binary_clean), 8)]
-    chaotic_sequence = generate_chaotic_sequence(len(bytes_list), dt=dt, a=a, b=b, c=c,
+    plaintext_bytes = [int(byte_str, 2) for byte_str in bytes_list]
+    
+    # Apply XOR chaining if enabled
+    if ENABLE_XOR_CHAINING:
+        if iv is None:
+            # If no IV is provided, use a default value (could be replaced by a passphrase-derived IV)
+            iv = 0
+        processed_bytes = xor_chain_bytes(plaintext_bytes, iv)
+    else:
+        processed_bytes = plaintext_bytes
+
+    # Generate a chaotic sequence matching the number of processed bytes
+    chaotic_sequence = generate_chaotic_sequence(len(processed_bytes), dt=dt, a=a, b=b, c=c,
                                                  x0=x0, y0=y0, z0=z0, burn_in=burn_in)
     waveform_segments = []
-    for i, byte_str in enumerate(bytes_list):
-        byte_val = int(byte_str, 2)
-        freq = BASE_FREQ + (byte_val / 255) * FREQ_RANGE
-        chaotic_offset = chaotic_sequence[i] * CHAOS_MOD_RANGE
+    for i, byte_val in enumerate(processed_bytes):
+        freq = base_freq + (byte_val / 255) * freq_range
+        chaotic_offset = chaotic_sequence[i] * chaos_mod_range
         modulated_freq = freq + chaotic_offset
         t_tone = np.linspace(0, tone_duration, int(sample_rate * tone_duration), endpoint=False)
         tone = np.sin(2 * np.pi * modulated_freq * t_tone)
-        gap = np.zeros(int(sample_rate * GAP_DURATION), dtype=np.float32)
+        gap = np.zeros(int(sample_rate * gap_duration), dtype=np.float32)
         waveform_segments.append(tone)
         waveform_segments.append(gap)
     waveform = np.concatenate(waveform_segments)
@@ -347,7 +398,12 @@ def main():
         # Derive initial conditions from passphrase
         derived_x0, derived_y0, derived_z0 = derive_initial_conditions(passphrase)
         
-        # Generate the encrypted (chaotic-modulated) waveform
+        # If XOR chaining is enabled, derive an IV from the passphrase (first 2 hex digits)
+        iv = None
+        if ENABLE_XOR_CHAINING:
+            iv = int(hashlib.sha256(passphrase.encode()).hexdigest()[:2], 16)
+        
+        # Generate the encrypted (chaotic-modulated) waveform with XOR chaining applied
         waveform_encrypted, _ = grouped_binary_to_waveform_chaotic(
             binary_output,
             sample_rate=sample_rate,
@@ -358,7 +414,8 @@ def main():
             chaos_mod_range=CHAOS_MOD_RANGE,
             dt=DT, a=A_PARAM, b=B_PARAM, c=C_PARAM,
             x0=derived_x0, y0=derived_y0, z0=derived_z0,
-            burn_in=BURN_IN
+            burn_in=BURN_IN,
+            iv=iv
         )
         
         # Key Generation
