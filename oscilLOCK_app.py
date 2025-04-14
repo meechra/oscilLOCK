@@ -370,13 +370,18 @@ def main():
     st.set_page_config(page_title="oscilLOCK", layout="wide")
     st.title("oscilLOCK - Multimodal Audio Based Encryptor")
     
-    # Sidebar: Input form with an "Enter" button
+    # Sidebar: Input form with an "Enter" button and XOR toggle control
     with st.sidebar:
         st.title("Enter Message")
         with st.form(key="message_form"):
             user_text = st.text_area("Enter text to encrypt:", "Hello, oscilLOCK!")
             passphrase = st.text_input("Enter passphrase for key generation:", "DefaultPassphrase", type="password")
+            xor_toggle = st.checkbox("Enable XOR Chaining", value=True)
             submit_button = st.form_submit_button("Enter")
+    
+    # Update the global XOR toggle based on sidebar input
+    global ENABLE_XOR_CHAINING
+    ENABLE_XOR_CHAINING = xor_toggle
     
     if submit_button and user_text:
         sample_rate = 44100
