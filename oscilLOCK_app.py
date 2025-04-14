@@ -241,12 +241,12 @@ def create_fft_figure(waveform_plain, waveform_chaotic, sample_rate, max_points=
     return fig
 
 def plot_correlation_coefficient(waveform_plain, waveform_chaotic, max_points=1000):
-    """Create a scatter plot of encoded vs. encrypted audio amplitudes."""
-    corr = np.corrcoef(waveform_plain, waveform_chaotic)[0,1]
+    """Create a scatter plot of encoded vs. encrypted audio amplitudes with correlation shown to 5 decimal places."""
+    corr = np.corrcoef(waveform_plain, waveform_chaotic)[0, 1]
     wp_ds = downsample_data(waveform_plain, max_points)
     we_ds = downsample_data(waveform_chaotic, max_points)
     fig = go.Figure(data=go.Scatter(x=wp_ds, y=we_ds, mode="markers", marker=dict(size=4)))
-    fig.update_layout(title=f"Scatter Plot (Correlation: {corr:.2f})", 
+    fig.update_layout(title=f"Scatter Plot (Correlation: {corr:.5f})", 
                       xaxis_title="Encoded Audio Amplitude", yaxis_title="Encrypted Audio Amplitude")
     return fig
 
